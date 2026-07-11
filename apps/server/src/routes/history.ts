@@ -18,6 +18,7 @@
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { recordAudit } from "../audit.js";
+import { PayloadTooLargeError, unifiedDiff } from "../diff.js";
 import { ApiError } from "../errors.js";
 import { SnapshotStore } from "../file-snapshots.js";
 import { fireMaybeSnapshot } from "../snapshot-middleware.js";
@@ -95,7 +96,6 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
   });
 
   // 3. GET /workspace/:id/history/diff?path=&from=&to= — slice 6.5a fills this.
-  // Currently returns 501 so the rest of slice 6.3 is shippable.
   addRoute(routes, "GET", "/workspace/:id/history/diff", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const filePath = readPathFromQuery(ctx.url);
@@ -104,20 +104,63 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     if (!from || !to) {
       throw new ApiError(400, "invalid_input", "Query params 'from' and 'to' are required");
     }
-    // Sanity: both snapshot ids must exist. The diff generator is filled
-    // in slice 6.5a; until then, we 501 with a clear message.
-    const fromSnap = await store.getById(workspace.id, from);
-    const toSnap = await store.getById(workspace.id, to);
-    if (!fromSnap || !toSnap) {
-      throw new ApiError(404, "snapshot_not_found", "One or both snapshot ids not found");
+    const fromSnap = from === "current" ? null : await store.getById(workspace.id, from);
+    const toSnap = to === "current" ? null : await store.getById(workspace.id, to);
+    if (from !== "current" && !fromSnap) {
+      throw new ApiError(404, "snapshot_not_found", `Snapshot '${from}' not found`);
     }
-    if (fromSnap.content.length > MAX_DIFF_INPUT_BYTES || toSnap.content.length > MAX_DIFF_INPUT_BYTES) {
-      throw new ApiError(413, "payload_too_large", "Snapshot content exceeds 1MB diff cap");
+    if (to !== "current" && !toSnap) {
+      throw new ApiError(404, "snapshot_not_found", `Snapshot '${to}' not found`);
     }
-    return jsonResponse(
-      { error: "not_implemented", message: "Diff endpoint ships in slice 6.5a", fromMeta: snapshotMeta(fromSnap), toMeta: snapshotMeta(toSnap) },
-      501,
-    );
+    if (fromSnap && fromSnap.filePath !== filePath) {
+      throw new ApiError(400, "path_mismatch", `Snapshot '${from}' was not created for this file path`);
+    }
+    if (toSnap && toSnap.filePath !== filePath) {
+      throw new ApiError(400, "path_mismatch", `Snapshot '${to}' was not created for this file path`);
+    }
+    let fromText = fromSnap?.content ?? "";
+    let toText = toSnap?.content ?? "";
+    if (from === "current") {
+      // Lazy require to avoid pulling fs into the boot path of routes that
+      // don't use this branch. The server is already reading files in
+      // routes/files.ts so this is a cheap include.
+      const { readFile } = await import("node:fs/promises");
+      const abs = join(workspace.path, filePath);
+      try {
+        fromText = await readFile(abs, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        fromText = "";
+      }
+    }
+    if (to === "current") {
+      const { readFile } = await import("node:fs/promises");
+      const abs = join(workspace.path, filePath);
+      try {
+        toText = await readFile(abs, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        toText = "";
+      }
+    }
+    let diff: string;
+    try {
+      diff = unifiedDiff(fromText, toText, {
+        fileName: filePath,
+        oldLabel: fromSnap ? fromSnap.id : "current",
+        newLabel: toSnap ? toSnap.id : "current",
+      });
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        throw new ApiError(413, "payload_too_large", err.message);
+      }
+      throw err;
+    }
+    return jsonResponse({
+      diff,
+      fromMeta: fromSnap ? snapshotMeta(fromSnap) : { id: "current", createdAt: 0, size: fromText.length, trigger: "auto" },
+      toMeta: toSnap ? snapshotMeta(toSnap) : { id: "current", createdAt: 0, size: toText.length, trigger: "auto" },
+    });
   });
 
   // 4. GET /workspace/:id/history/:snapshotId/content?path= — fetch snapshot content.

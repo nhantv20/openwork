@@ -1,11 +1,10 @@
 /** @jsxImportSource react */
 /**
- * Phase 6, slice 6.4 — FileHistoryPanel.
+ * Phase 6, slice 6.4 + 6.5a — FileHistoryPanel.
  *
  * A small popover that lists all snapshots for the currently open file, with
- * Restore + Save snapshot + (stubbed) Compare buttons. Compare is a no-op
- * with a tooltip in this slice; slice 6.5a wires it up to the real diff
- * endpoint.
+ * Restore + Save snapshot + Compare buttons. Compare (slice 6.5a) hits the
+ * real diff endpoint and renders the existing `DiffViewer` inline.
  *
  * Null-safety: when workspaceId or filePath is undefined, the hook
  * (useFileHistory) returns an empty array and the panel renders nothing.
@@ -17,8 +16,9 @@ import { useState } from "react";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { History, RotateCcw, Save, GitCompareArrows } from "lucide-react";
+import { History, RotateCcw, Save, GitCompareArrows, X } from "lucide-react";
 import { useFileHistory } from "./hooks/use-file-history";
+import { DiffViewer } from "./viewers/diff-viewer";
 
 type Props = {
   client: OpenworkServerClient | null;
@@ -36,11 +36,18 @@ function formatRelative(ts: number, now: number = Date.now()): string {
   return `${Math.round(diff / 86_400_000)} d ago`;
 }
 
+type CompareState =
+  | { kind: "idle" }
+  | { kind: "loading"; snapshotId: string }
+  | { kind: "ready"; snapshotId: string; diff: string }
+  | { kind: "error"; snapshotId: string; message: string };
+
 export function FileHistoryPanel({ client, workspaceId, filePath, currentContent }: Props) {
   const { history, historyLoading, historyError, saveManualSnapshot, isSaving, restoreSnapshot, isRestoring } =
     useFileHistory({ client, workspaceId, filePath });
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [compare, setCompare] = useState<CompareState>({ kind: "idle" });
 
   if (!workspaceId || !filePath) return null;
 
@@ -57,13 +64,31 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
     setRestoreError(null);
     try {
       await restoreSnapshot(snapshotId);
+      if (compare.kind === "ready" && compare.snapshotId === snapshotId) {
+        setCompare({ kind: "idle" });
+      }
     } catch (err) {
       setRestoreError(err instanceof Error ? err.message : String(err));
     }
   };
 
+  const onCompare = async (snapshotId: string) => {
+    if (!client) return;
+    setCompare({ kind: "loading", snapshotId });
+    try {
+      const result = await client.diffFileSnapshots(workspaceId, filePath, snapshotId, "current");
+      setCompare({ kind: "ready", snapshotId, diff: result.diff });
+    } catch (err) {
+      setCompare({
+        kind: "error",
+        snapshotId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   return (
-    <div className="flex w-80 flex-col gap-3 p-3" data-testid="file-history-panel">
+    <div className="flex w-[28rem] max-w-[90vw] flex-col gap-3 p-3" data-testid="file-history-panel">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-[12px] font-semibold text-dls-text">
           <History className="h-3.5 w-3.5" />
@@ -133,15 +158,16 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          disabled
-                          aria-label="Compare (coming in 6.5a)"
+                          onClick={() => void onCompare(snap.id)}
+                          disabled={compare.kind === "loading"}
+                          aria-label="Compare with current"
                           data-testid="file-history-compare"
                         >
                           <GitCompareArrows />
                         </Button>
                       }
                     />
-                    <TooltipContent>Compare (coming in 6.5a)</TooltipContent>
+                    <TooltipContent>Compare with current</TooltipContent>
                   </Tooltip>
                 </div>
               </li>
@@ -149,6 +175,40 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
           </ul>
         )}
       </div>
+
+      {compare.kind === "loading" ? (
+        <div className="text-[11px] text-dls-secondary" data-testid="file-history-diff-loading">
+          Loading diff for {compare.snapshotId.slice(0, 12)}…
+        </div>
+      ) : null}
+      {compare.kind === "error" ? (
+        <div className="text-[11px] text-red-500" data-testid="file-history-diff-error">
+          {compare.message}
+        </div>
+      ) : null}
+      {compare.kind === "ready" ? (
+        <div className="flex flex-col gap-2" data-testid="file-history-diff">
+          <div className="flex items-center justify-between text-[10px] text-dls-secondary">
+            <span>
+              Diff: {compare.snapshotId.slice(0, 12)}… vs current
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setCompare({ kind: "idle" })}
+              aria-label="Close diff"
+              data-testid="file-history-diff-close"
+            >
+              <X />
+            </Button>
+          </div>
+          {compare.diff ? (
+            <DiffViewer diff={compare.diff} className="max-h-72 overflow-auto" />
+          ) : (
+            <div className="text-[11px] text-dls-secondary">No changes between this snapshot and the current file.</div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

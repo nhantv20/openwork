@@ -1930,6 +1930,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/history/${encodeURIComponent(snapshotId)}/restore?path=${encodeURIComponent(path)}`,
         { token, hostToken, method: "POST", body: {} },
       ),
+    diffFileSnapshots: (workspaceId: string, path: string, from: string, to: string) =>
+      requestJson<{ diff: string; fromMeta: { id: string; createdAt: number; size: number; trigger: "auto" | "manual" }; toMeta: { id: string; createdAt: number; size: number; trigger: "auto" | "manual" } }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/diff?path=${encodeURIComponent(path)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        { token, hostToken },
+      ),
   };
 }
 

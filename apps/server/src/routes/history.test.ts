@@ -197,7 +197,7 @@ describe("history API routes", () => {
     expect(response.status).toBe(400);
   });
 
-  test("diff endpoint returns 501 with metadata (slice 6.5a fills)", async () => {
+  test("diff endpoint returns unified diff text (slice 6.5a)", async () => {
     const workspaceRoot = await setupWorkspace();
     const { base, token } = await startHistoryServer(workspaceRoot);
     const headers = auth(token);
@@ -205,14 +205,14 @@ describe("history API routes", () => {
       await fetch(`${base}/workspace/ws_1/history/snapshot?path=d.ts`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ content: "a" }),
+        body: JSON.stringify({ content: "line1\nline2\nline3\n" }),
       }),
     );
     const b = await json(
       await fetch(`${base}/workspace/ws_1/history/snapshot?path=d.ts`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ content: "b" }),
+        body: JSON.stringify({ content: "line1\nLINE2\nline3\n" }),
       }),
     );
     const diff = await json(
@@ -220,11 +220,39 @@ describe("history API routes", () => {
         `${base}/workspace/ws_1/history/diff?path=d.ts&from=${a.snapshot.id}&to=${b.snapshot.id}`,
         { headers },
       ),
-      501,
     );
-    expect(diff.error).toBe("not_implemented");
+    expect(diff.diff).toContain("--- d.ts");
+    expect(diff.diff).toContain("+++ d.ts");
+    expect(diff.diff).toContain("-line2");
+    expect(diff.diff).toContain("+LINE2");
     expect(diff.fromMeta.id).toBe(a.snapshot.id);
     expect(diff.toMeta.id).toBe(b.snapshot.id);
+  });
+
+  test("diff endpoint with from='current' reads the live file", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    // Snapshot v1
+    const snap = await json(
+      await fetch(`${base}/workspace/ws_1/history/snapshot?path=live.ts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: "old\n" }),
+      }),
+    );
+    // Write a new file on disk
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(`${workspaceRoot}/live.ts`, "new\n", "utf8");
+    // Diff snapshot vs current
+    const diff = await json(
+      await fetch(
+        `${base}/workspace/ws_1/history/diff?path=live.ts&from=${snap.snapshot.id}&to=current`,
+        { headers },
+      ),
+    );
+    expect(diff.diff).toContain("-old");
+    expect(diff.diff).toContain("+new");
   });
 
   test("path with subdirs is accepted", async () => {
