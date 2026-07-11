@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Folder, FolderOpen, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { Columns2, PanelRight, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -56,10 +56,7 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
-import { VoicePanel } from "../voice/voice-panel";
-import { SidePanel } from "../panel/side-panel";
-import { FileExplorerPanel } from "../panel/file-explorer-panel";
-import { PreviewWithFileTree } from "../artifacts/preview-with-file-tree";
+import { RightPanel } from "../panel/right-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -312,15 +309,10 @@ export function SessionPage(props: SessionPageProps) {
     () => transcriptTargets.filter((target) => isTrackableAccessibleTarget(target) && !hiddenAccessibleTargetIds.has(target.id)),
     [hiddenAccessibleTargetIds, transcriptTargets],
   );
-  const artifactFileTargets = useMemo(() => accessibleTargets.filter(isCollectibleArtifactTarget), [accessibleTargets]);
-  const artifactTargetCount = artifactFileTargets.length;
-  const hasArtifactTargets = artifactTargetCount > 0;
   const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
-  const panelRailActive = activeSidePanel === "panel";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
-  const filesRailActive = activeSidePanel === "files" || activeSidePanel === "preview";
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -401,6 +393,16 @@ export function SessionPage(props: SessionPageProps) {
     if (sidePanelOpen) return;
     setBrowserPanelDefaultWidth(browserPanelWidth);
   }, [sidePanelOpen, browserPanelWidth]);
+
+  // When the user opens a file for preview (from the file tree or a chat
+  // mention), grow the right panel so the preview is comfortable to read.
+  // Only grows — never shrinks, so a manually-resized panel stays put.
+  const expandRightPanelForFile = useCallback(() => {
+    const expandedWidth = Math.max(browserPanelWidth, 720);
+    if (expandedWidth !== browserPanelWidth) {
+      setBrowserPanelWidth(expandedWidth);
+    }
+  }, [browserPanelWidth, setBrowserPanelWidth]);
   useEffect(() => {
     props.onAccessibleTargetsChange?.(accessibleTargets);
   }, [accessibleTargets, props.onAccessibleTargetsChange]);
@@ -477,28 +479,16 @@ export function SessionPage(props: SessionPageProps) {
       preview: target.preview,
     });
     preserveSidePanelOnPanelOpenRef.current = true;
-    setCurrentSidePanel("panel");
-  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+    setCurrentSidePanel("preview");
+    expandRightPanelForFile();
+  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel, expandRightPanelForFile]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
-  const openBrowserRailPane = useCallback(() => {
-    // Opening the browser pane should land on a usable page, not an empty
-    // panel that forces the user to click "+". If no browser tab exists yet,
-    // create one (defaults to the new-tab URL in the main process).
-    const opening = !panelRailActive;
-    if (opening && isElectronRuntime()) {
-      const hasBrowserTab = sessionPanelState.tabs.some((tab) => tab.type === "browser");
-      if (!hasBrowserTab) {
-        void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
-      }
-    }
-    toggleCurrentSidePanel("panel");
-  }, [panelRailActive, sessionPanelState.tabs, toggleCurrentSidePanel]);
   const openBrowserUrlControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "browser.open_url",
     label: "Open URL in built-in browser",
-    description: "Create or select an OpenWork built-in browser tab, navigate it to a URL, and return the CDP handle for browser automation.",
+    description: "Create or select an OpenWork built-in browser tab, navigate it to the URL, and return the CDP handle for browser automation.",
     sideEffect: "navigation",
     requiresArgs: true,
     args: [
@@ -537,47 +527,109 @@ export function SessionPage(props: SessionPageProps) {
     },
   }), []);
   useControlAction(setBrowserProxyControlAction);
-  const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets || !props.selectedSessionId) return;
-    const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
-    const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
-    const artifactTab = sessionPanelState.tabs.find((tab) => (
-      tab.type === "artifact" && artifactTargetIds.has(tab.id)
-    ));
-    const firstArtifact = artifactFileTargets[0];
-    if (panelRailActive && activeTab?.type === "artifact") {
-      toggleCurrentSidePanel("panel");
+  // Single rail button that opens the right panel at its last mode (or "files" by default).
+  // The header inside <RightPanel /> owns the per-mode toggle (Files / Preview / Browser).
+  const openPanelRailButton = useCallback(() => {
+    if (sidePanelOpen) {
+      setCurrentSidePanel(null);
       return;
     }
-    if (!panelRailActive) {
-      preserveSidePanelOnPanelOpenRef.current = true;
-    }
-    if (artifactTab) {
-      selectTab(props.selectedSessionId, artifactTab.id);
-    } else if (firstArtifact) {
-      openTab(props.selectedSessionId, {
-        id: firstArtifact.id,
-        type: "artifact",
-        label: firstArtifact.name,
-        preview: firstArtifact.preview,
-      });
-    }
-    if (!panelRailActive) {
-      toggleCurrentSidePanel("panel");
-    }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
-  const openExtensionsRailPane = useCallback(() => {
-    toggleCurrentSidePanel("extensions");
-  }, [toggleCurrentSidePanel]);
-  const openVoiceRailPane = useCallback(() => {
-    toggleCurrentSidePanel("voice");
-  }, [toggleCurrentSidePanel]);
-  const openFilesRailPane = useCallback(() => {
-    toggleCurrentSidePanel("files");
-  }, [toggleCurrentSidePanel]);
-  const openPreviewRailPane = useCallback(() => {
-    toggleCurrentSidePanel("preview");
-  }, [toggleCurrentSidePanel]);
+    // Land on "files" if the panel is closed — user can switch via the header.
+    setCurrentSidePanel("files");
+  }, [setCurrentSidePanel, sidePanelOpen]);
+
+  // Right-panel keyboard shortcuts (Cmd+Opt+1/2/3 on Mac, Ctrl+Alt+1/2/3 elsewhere).
+  // Cmd+. closes the panel. Skipped while typing in an input/textarea/contentEditable
+  // so the shortcuts don't hijack normal typing.
+  useEffect(() => {
+    if (!props.selectedSessionId) return;
+    const handler = (event: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+      const mod = isMac ? event.metaKey : event.ctrlKey;
+      if (!mod || !event.altKey) return;
+      if (event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (inEditable) return;
+      const key = event.key;
+      if (key === "1") {
+        event.preventDefault();
+        toggleCurrentSidePanel("files");
+      } else if (key === "2") {
+        event.preventDefault();
+        toggleCurrentSidePanel("preview");
+      } else if (key === "3") {
+        event.preventDefault();
+        // Make sure a browser tab exists so the panel isn't empty.
+        if (activeSidePanel !== "panel") {
+          const hasBrowserTab = sessionPanelState.tabs.some((tab) => tab.type === "browser");
+          if (!hasBrowserTab && isElectronRuntime()) {
+            void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
+          }
+        }
+        toggleCurrentSidePanel("panel");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    props.selectedSessionId,
+    toggleCurrentSidePanel,
+    activeSidePanel,
+    sessionPanelState.tabs,
+  ]);
+
+  // Cmd+. closes the right panel.
+  useEffect(() => {
+    if (!props.selectedSessionId) return;
+    const handler = (event: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+      const mod = isMac ? event.metaKey : event.ctrlKey;
+      if (!mod || event.altKey || event.shiftKey) return;
+      if (event.key !== ".") return;
+      if (!sidePanelOpen) return;
+      const target = event.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (inEditable) return;
+      event.preventDefault();
+      setCurrentSidePanel(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [props.selectedSessionId, sidePanelOpen, setCurrentSidePanel]);
+
+  // Cmd+Shift+R reloads the active file preview by dispatching an event that
+  // ArtifactPanel listens to. Only triggers when the panel is open in preview
+  // mode and an artifact tab is active.
+  useEffect(() => {
+    if (!props.selectedSessionId) return;
+    const handler = (event: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+      const mod = isMac ? event.metaKey : event.ctrlKey;
+      if (!mod || !event.shiftKey || event.altKey) return;
+      if (event.key?.toLowerCase() !== "r") return;
+      if (activeSidePanel !== "preview") return;
+      const target = event.target as HTMLElement | null;
+      const inEditable =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (inEditable) return;
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent("openwork:reload-artifact-preview"));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [props.selectedSessionId, activeSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
     nextHiddenIds.add(target.id);
@@ -1264,63 +1316,21 @@ export function SessionPage(props: SessionPageProps) {
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
-                  {activeSidePanel === "extensions" && props.settingsSlot ? (
-                    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
-                      {props.settingsSlot}
-                    </div>
-                  ) : activeSidePanel === "voice" ? (
-                    <VoicePanel
-                      client={props.openworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      sessionId={props.selectedSessionId}
-                      onClose={closeRightPane}
-                    />
-                  ) : activeSidePanel === "files" ? (
-                    <FileExplorerPanel
-                      client={props.openworkServerClient}
-                      workspaceId={props.runtimeWorkspaceId}
-                      workspaceRoot={props.selectedWorkspaceRoot}
-                      onFileSelect={(path, preview) => {
-                        if (!props.selectedSessionId) return;
-                        const fileId = `file:${path.toLowerCase()}`;
-                        const name = path.includes("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
-                        const target: OpenTarget = {
-                          id: fileId,
-                          kind: "file",
-                          value: path,
-                          name,
-                          preview,
-                          confidence: 100,
-                          reason: "file_explorer",
-                          exists: true,
-                        };
-                        usePanelTabStore.getState().syncTranscriptArtifacts(props.selectedSessionId, [target]);
-                        openTab(props.selectedSessionId, {
-                          id: fileId,
-                          type: "artifact",
-                          label: name,
-                          preview,
-                        });
-                        setCurrentSidePanel("preview");
-                      }}
-                      onClose={closeRightPane}
-                    />
-                  ) : activeSidePanel === "preview" && props.selectedSessionId ? (
-                    <PreviewWithFileTree
-                      sessionId={props.selectedSessionId}
-                      client={props.openworkServerClient!}
-                      workspaceId={props.runtimeWorkspaceId!}
-                      workspaceRoot={props.selectedWorkspaceRoot}
-                      isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-                      onClose={closeRightPane}
-                    />
-                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
-                    <SidePanel
+                  {props.selectedSessionId ? (
+                    <RightPanel
                       sessionId={props.selectedSessionId}
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                      onFilePreviewOpen={expandRightPanelForFile}
+                      extensionsSlot={
+                        activeSidePanel === "extensions" && props.settingsSlot ? (
+                          <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+                            {props.settingsSlot}
+                          </div>
+                        ) : undefined
+                      }
                       onClose={closeRightPane}
                     />
                   ) : null}
@@ -1329,72 +1339,26 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
-            {isElectronRuntime() ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={openBrowserRailPane}
-                title="Browser"
-                aria-label="Browser"
-                aria-pressed={panelRailActive}
-              >
-                <Globe size={17} />
-              </Button>
-            ) : null}
-            {voiceExtensionEnabled ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                  voiceRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                )}
-                onClick={openVoiceRailPane}
-                title="Voice Mode"
-                aria-label="Voice Mode"
-                aria-pressed={voiceRailActive}
-              >
-                <Mic2 size={17} />
-              </Button>
-            ) : null}
+            {/* Single rail button opens/closes the right panel. Per-mode
+                (Files / Preview / Browser) is handled by the header inside
+                <RightPanel />. Voice and Extensions are kept on the rail
+                because they have no toggle in the header. */}
             <Button
               variant="ghost"
               size="icon-sm"
               className={cn(
                 "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                filesRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                sidePanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
-              onClick={openFilesRailPane}
-              title="Files"
-              aria-label="Files"
-              aria-pressed={filesRailActive}
+              onClick={openPanelRailButton}
+              title="Toggle right panel"
+              aria-label="Toggle right panel"
+              aria-pressed={sidePanelOpen}
             >
-              <FolderOpen size={17} />
+              <PanelRight size={17} />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
-                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-              )}
-              onClick={openArtifactRailPane}
-              title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive}
-              disabled={!hasArtifactTargets}
-            >
-              <FileText size={17} />
-              {artifactTargetCount > 0 ? (
-                <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
-                  {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
-                </span>
-              ) : null}
-            </Button>
+            {/* Voice + Extensions now live in the right-panel header menu. */}
+            {voiceExtensionEnabled ? null : null}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -1402,9 +1366,9 @@ export function SessionPage(props: SessionPageProps) {
                 "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
                 extensionsRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
-              onClick={props.settingsSlot ? openExtensionsRailPane : props.onOpenSettings}
-              title="Extensions"
-              aria-label="Extensions"
+              onClick={props.onOpenSettings}
+              title="Settings"
+              aria-label="Settings"
               aria-pressed={extensionsRailActive}
             >
               <Settings2 size={17} />

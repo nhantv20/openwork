@@ -18,6 +18,7 @@ import {
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
+  $getNodeByKey,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
   KEY_ARROW_LEFT_COMMAND,
@@ -25,6 +26,7 @@ import {
   KEY_BACKSPACE_COMMAND,
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
+  type LexicalNode,
   type SerializedTextNode,
   type Spread,
   TextNode,
@@ -127,17 +129,51 @@ class ComposerMentionNode extends TextNode {
   override createDOM(_config: EditorConfig) {
     const dom = document.createElement("span");
     dom.className = MENTION_PILL_CLASS[this.__kind];
-    dom.textContent = mentionPillText(this.__value, this.__kind);
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
     dom.title = `@${this.__value}`;
+    dom.setAttribute("data-lexical-mention", "true");
+    // Capture the key in closure so the × click works even on a freshly
+    // created pill (createDOM is the only entry point that runs on first
+    // mount — updateDOM is only invoked when reconciling an existing node,
+    // so reading a data-attribute set inside updateDOM returns null for
+    // brand-new nodes and the click handler silently bails out).
+    const nodeKey = this.getKey();
+
+    const label = document.createElement("span");
+    label.textContent = mentionPillText(this.__value, this.__kind);
+    dom.appendChild(label);
+
+    // Small × button for explicit deletion. Click removes the whole chip via
+    // the same path the Backspace shortcut uses, so users who don't know the
+    // cursor-position trick can still undo a wrong mention with one click.
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.setAttribute("aria-label", `Remove mention ${this.__value}`);
+    removeButton.className = "ml-1 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-current/60 hover:bg-foreground/15 hover:text-current";
+    removeButton.textContent = "×";
+    removeButton.addEventListener("mousedown", (event) => {
+      // Prevent the editor losing selection / focus on click.
+      event.preventDefault();
+    });
+    removeButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = $getNodeByKey(nodeKey);
+      if ($isComposerMentionNode(target)) {
+        target.remove();
+      }
+    });
+    dom.appendChild(removeButton);
+
     return dom;
   }
 
-  override updateDOM(prevNode: ComposerMentionNode, dom: HTMLElement) {
+  override updateDOM(prevNode: ComposerMentionNode, dom: HTMLElement): boolean {
     if (prevNode.__value !== this.__value || prevNode.__kind !== this.__kind) {
       dom.className = MENTION_PILL_CLASS[this.__kind];
-      dom.textContent = mentionPillText(this.__value, this.__kind);
+      const label = dom.firstChild;
+      if (label) label.textContent = mentionPillText(this.__value, this.__kind);
       dom.title = `@${this.__value}`;
     }
     return false;
@@ -162,6 +198,12 @@ class ComposerMentionNode extends TextNode {
 
 function $createComposerMentionNode(value: string, kind: ComposerMentionKind) {
   return $applyNodeReplacement(new ComposerMentionNode(value, kind));
+}
+
+function $isComposerMentionNode(
+  node: LexicalNode | null | undefined,
+): node is ComposerMentionNode {
+  return node instanceof ComposerMentionNode;
 }
 
 class ComposerSlashCommandNode extends TextNode {

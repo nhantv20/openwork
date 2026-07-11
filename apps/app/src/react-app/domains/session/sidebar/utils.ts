@@ -32,6 +32,33 @@ const normalizeSessionParentID = (session: SessionListItem) => {
   return parentID || "";
 };
 
+/**
+ * Return a sortable timestamp for a session, preferring `time.updated` and
+ * falling back to `time.created` then to 0. Sessions with no timestamps
+ * sink to the bottom but still keep a deterministic order via the id.
+ */
+const getSessionSortTimestamp = (session: SessionListItem): number => {
+  const updated = session.time?.updated;
+  if (typeof updated === "number" && updated > 0) return updated;
+  const created = session.time?.created;
+  if (typeof created === "number" && created > 0) return created;
+  return 0;
+};
+
+/**
+ * Sort sessions in-place-stable by recency (newest first). We never mutate
+ * the input array; we return a new one. Tie-breaks on id so the result is
+ * deterministic across re-renders even if the upstream `sessions` array
+ * order changes between server pushes.
+ */
+export const sortSessionsByRecency = (sessions: SessionListItem[]): SessionListItem[] => {
+  return [...sessions].sort((a, b) => {
+    const diff = getSessionSortTimestamp(b) - getSessionSortTimestamp(a);
+    if (diff !== 0) return diff;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+};
+
 export const getRootSessions = (sessions: WorkspaceSessionGroup["sessions"]) => {
   const byID = new Set(sessions.map((session) => session.id));
   return sessions.filter((session) => {
@@ -52,6 +79,10 @@ export const partitionArchivedSessions = (sessions: WorkspaceSessionGroup["sessi
 
 /**
  * Order root sessions: pinned first, then manual order, then server recency.
+ *
+ * "Manual order" is filtered to ids that still exist in the current `roots`
+ * list, and the remaining (unpinned / unknown) roots are sorted by recency so
+ * re-renders and partial server updates don't shuffle them randomly.
  */
 export const orderRootSessions = (
   roots: SessionListItem[],
@@ -63,12 +94,17 @@ export const orderRootSessions = (
   const used = new Set<string>();
 
   for (const id of orderIds) {
+    if (typeof id !== "string" || !id) continue;
     const root = byId.get(id);
     if (!root || used.has(id)) continue;
     ordered.push(root);
     used.add(id);
   }
-  for (const root of roots) {
+  // Anything the server returned but manual order didn't mention: sort by
+  // recency. This is the key bit that keeps the sidebar stable across pushes
+  // — without it the order of unpinned roots inherits whatever order the
+  // server happened to send them in, which flickers.
+  for (const root of sortSessionsByRecency(roots)) {
     if (used.has(root.id)) continue;
     ordered.push(root);
     used.add(root.id);
@@ -101,6 +137,14 @@ export const buildSessionTreeState = (
     siblings.push(session);
     childrenByParent.set(parentID, siblings);
   });
+
+  // Children can be returned by the server in any order (e.g. after a delta
+  // sync). Sort each sibling group by recency so expanding a parent always
+  // shows children newest-first instead of flickering around.
+  for (const [parentID, siblings] of childrenByParent) {
+    const sorted = sortSessionsByRecency(siblings);
+    childrenByParent.set(parentID, sorted);
+  }
 
   const walk = (session: SessionListItem, ancestors: string[]) => {
     ancestorIdsBySessionId.set(session.id, ancestors);

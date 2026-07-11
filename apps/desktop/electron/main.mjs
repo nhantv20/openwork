@@ -1282,6 +1282,56 @@ const desktopCommandHandlers = {
       }
       return `Could not find "${target}" on disk.`;
   },
+  "__openInEditor": async (event, ...args) => {
+      // args: [targetPath, editorCommand]
+      // editorCommand examples: "code", "cursor", "subl", "webstorm", "idea", "nvim"
+      // Empty editorCommand falls back to the OS default app (shell.openPath).
+      const target = String(args[0] ?? "").trim();
+      const command = String(args[1] ?? "").trim();
+      if (!target) return "Path is required.";
+      if (!existsSync(target)) {
+        const parent = path.dirname(target);
+        if (!parent || parent === target || !existsSync(parent)) {
+          return `Could not find "${target}" on disk.`;
+        }
+      }
+      if (!command) {
+        const error = await shell.openPath(target);
+        return error && error.trim() ? error : undefined;
+      }
+      // Resolve the command: if it's an absolute path or contains a path
+      // separator, spawn it directly; otherwise spawn via the shell so the
+      // user's PATH is consulted and `.cmd` / `.bat` shims (Windows) work.
+      const useShell = !command.includes("/") || process.platform === "win32";
+      try {
+        const child = spawn(command, [target], {
+          detached: true,
+          stdio: "ignore",
+          shell: useShell,
+        });
+        return await new Promise((resolve) => {
+          let resolved_flag = false;
+          const finish = (message) => {
+            if (resolved_flag) return;
+            resolved_flag = true;
+            resolve(message);
+          };
+          child.on("error", (err) => {
+            finish(`Could not open "${target}" in ${command}: ${err.message}. Make sure the editor's CLI is installed and on PATH (e.g. for VS Code: Cmd+Shift+P → "Shell Command: Install 'code' command in PATH").`);
+          });
+          child.on("spawn", () => {
+            child.unref();
+            finish(undefined);
+          });
+          // If the editor is a GUI app, spawn may not emit "spawn" reliably.
+          // Give it a short window then assume success.
+          setTimeout(() => finish(undefined), 250);
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Could not open "${target}" in ${command}: ${message}`;
+      }
+  },
   "__getFileIcon": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return null;

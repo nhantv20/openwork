@@ -86,7 +86,14 @@ type ComposerProps = {
   onOpenSettingsSection?: (section: ToolMenuSettingsSection) => void;
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
+  listFiles: () => Promise<string[]>;
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
+  /**
+   * Drop handler invoked when a file path is dropped from the file tree
+   * into the composer. Parent should read the file content and append it
+   * to the draft. Returning a promise lets the parent await the read.
+   */
+  onFileDrop?: (path: string) => void | Promise<void>;
   /** Sent-prompt history (oldest first) recalled with ArrowUp/ArrowDown (#2012). */
   inputHistory?: string[];
   onPasteText: (text: string) => void;
@@ -107,6 +114,10 @@ const FOCUS_PROMPT_EVENT = "openwork:focusPrompt";
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const IMAGE_COMPRESS_MAX_PX = 2048;
 const IMAGE_COMPRESS_QUALITY = 0.82;
+// DataTransfer key the file tree uses when dragging a file/folder into the
+// composer. Picked to be unique enough not to clash with browser drag sources
+// (text/uri-list, files, etc.).
+const DRAG_FILE_PATH_MIME = "application/x-openwork-file-path";
 const IMAGE_COMPRESS_TARGET_BYTES = 1_500_000;
 const FILE_URL_RE = /^file:\/\//i;
 const HTTP_URL_RE = /^https?:\/\//i;
@@ -555,7 +566,10 @@ export function ReactSessionComposer(props: ComposerProps) {
   useEffect(() => {
     if (!mentionOpen) return;
     let cancelled = false;
-    void Promise.all([props.listAgents(), props.searchFiles(mentionQuery), listRunningAppsForMention()]).then(([agentList, files, apps]) => {
+    const filePromise = mentionQuery.trim()
+      ? props.searchFiles(mentionQuery)
+      : props.listFiles();
+    void Promise.all([props.listAgents(), filePromise, listRunningAppsForMention()]).then(([agentList, files, apps]) => {
       if (cancelled) return;
       const recent = props.recentFiles.slice(0, 8);
       const next: MentionItem[] = [
@@ -574,7 +588,7 @@ export function ReactSessionComposer(props: ComposerProps) {
     return () => {
       cancelled = true;
     };
-  }, [mentionOpen, mentionQuery, props.listAgents, props.recentFiles, props.searchFiles]);
+  }, [mentionOpen, mentionQuery, props.listAgents, props.recentFiles, props.searchFiles, props.listFiles]);
 
   useEffect(() => {
     if (!toolMenuOpen) return;
@@ -1273,6 +1287,13 @@ export function ReactSessionComposer(props: ComposerProps) {
                   event.preventDefault();
                   if (!dropzoneActive) setDropzoneActive(true);
                 }
+                // File tree drag — show "mention" affordance via the same
+                // dropzoneActive flag so the dashed border appears.
+                if (event.dataTransfer?.types.includes(DRAG_FILE_PATH_MIME)) {
+                  event.preventDefault();
+                  if (!dropzoneActive) setDropzoneActive(true);
+                  event.dataTransfer.dropEffect = "copy";
+                }
               }}
               onDragLeave={(event) => {
                 const nextTarget = event.relatedTarget;
@@ -1280,8 +1301,17 @@ export function ReactSessionComposer(props: ComposerProps) {
                 setDropzoneActive(false);
               }}
               onDrop={(event) => {
-                const files = Array.from(event.dataTransfer?.files ?? []);
                 setDropzoneActive(false);
+                // Path drop from the file tree: insert a real mention pill via
+                // the same code path the autocomplete uses, so dropped files get
+                // the same visual treatment and attached metadata.
+                const droppedPath = event.dataTransfer?.getData(DRAG_FILE_PATH_MIME);
+                if (droppedPath) {
+                  event.preventDefault();
+                  props.onInsertMention("file", droppedPath);
+                  return;
+                }
+                const files = Array.from(event.dataTransfer?.files ?? []);
                 if (!files.length) return;
                 event.preventDefault();
                 void addAttachments(files);

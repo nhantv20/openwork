@@ -359,6 +359,19 @@ export async function revealDesktopItemInDir(target: string): Promise<void> {
   }
 }
 
+/**
+ * Open a file in a specific editor by spawning the editor's CLI command with
+ * the file path. Pass an empty `editorCommand` to open with the OS default app.
+ * Common commands: "code" (VSCode), "cursor", "subl" (Sublime), "webstorm",
+ * "idea" (IntelliJ), "nvim" (Neovim), "vim".
+ */
+export async function openDesktopFileInEditor(target: string, editorCommand: string): Promise<void> {
+  const result = await invokeElectronHelper("__openInEditor", target, editorCommand);
+  if (typeof result === "string" && result.trim()) {
+    throw new Error(result);
+  }
+}
+
 export async function getDesktopFileIcon(target: string, size?: "small" | "normal" | "large"): Promise<string | null> {
   return invokeElectronHelper("__getFileIcon", target, size);
 }

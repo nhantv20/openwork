@@ -12,7 +12,9 @@
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -30,6 +32,74 @@ import {
   runtimePluginList,
   runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Read the `provider` section from the global opencode config
+ * (`~/.config/opencode/opencode.json` or `.jsonc`) so custom providers
+ * defined there are available in every workspace without per-workspace
+ * config files.
+ */
+/**
+ * Resolve the global opencode config file path by checking known locations:
+ *
+ * 1. `$OPENCODE_CONFIG_DIR/opencode.json(c)` — explicit override (dev mode)
+ * 2. `~/.config/opencode/opencode.json(c)` — standard location (production)
+ * 3. `$XDG_CONFIG_HOME/opencode/opencode.json(c)` — XDG location (dev mode)
+ * 4. `/Users/<USER>/.config/opencode/opencode.json(c)` — real home when
+ *    $HOME is sandboxed to a dev data dir (macOS dev mode).
+ *
+ * The first existing file wins.
+ */
+function resolveGlobalOpencodeConfigPath(): string | null {
+  const seen = new Set<string>();
+
+  function add(base: string) {
+    for (const name of ["opencode.jsonc", "opencode.json"]) {
+      const candidate = join(base, name);
+      if (!seen.has(candidate)) seen.add(candidate);
+    }
+  }
+
+  // 1. OPENCODE_CONFIG_DIR (dev mode override)
+  const configDir = process.env.OPENCODE_CONFIG_DIR?.trim();
+  if (configDir) add(configDir);
+
+  // 2. Standard ~/.config/opencode/
+  add(join(homedir(), ".config", "opencode"));
+
+  // 3. XDG_CONFIG_HOME (set in dev mode)
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdgConfigHome && xdgConfigHome !== join(homedir(), ".config")) {
+    add(join(xdgConfigHome, "opencode"));
+  }
+
+  // 4. Real home on macOS (HOME is sandboxed in dev mode, but USER is not)
+  if (process.platform === "darwin" && process.env.USER) {
+    add(join("/Users", process.env.USER, ".config", "opencode"));
+  }
+
+  for (const candidate of seen) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function readGlobalProvider(): Record<string, unknown> {
+  const globalPath = resolveGlobalOpencodeConfigPath();
+  if (!globalPath) return {};
+  try {
+    const raw = readFileSync(globalPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const provider = isRecord(parsed) && isRecord(parsed.provider) ? parsed.provider : {};
+    return provider;
+  } catch {
+    return {};
+  }
+}
 
 const OPENWORK_AGENT_PROMPT = `You are OpenWork.
 
@@ -71,8 +141,12 @@ export async function buildOpenworkRuntimeConfigObject(
 ): Promise<Record<string, unknown>> {
   const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
+  const globalProvider = readGlobalProvider();
+  const runtimeProvider = isRecord(runtimeConfig.provider) ? runtimeConfig.provider : {};
+  const mergedProvider = { ...globalProvider, ...runtimeProvider };
   return {
     ...runtimeConfig,
+    ...(mergedProvider ? { provider: mergedProvider } : {}),
     default_agent: runtimeConfig.default_agent ?? "openwork",
     agent: {
       openwork: {

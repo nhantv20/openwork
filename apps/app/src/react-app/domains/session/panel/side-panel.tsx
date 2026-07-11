@@ -598,8 +598,13 @@ export function SidePanel({
 
 function PanelEmpty() {
   return (
-    <div className="flex h-full items-center justify-center p-4 text-center">
-      <p className="text-sm text-muted-foreground">Open an artifact or browser tab to get started.</p>
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+      <Globe className="size-7 opacity-40" />
+      <p className="font-medium">Chưa có tab nào</p>
+      <p className="text-xs">
+        Nhấn <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">+</span> ở header
+        để mở browser tab, hoặc nhấn <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">⌘⌥3</span>.
+      </p>
     </div>
   );
 }

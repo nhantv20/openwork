@@ -902,6 +902,23 @@ export function SessionRoute() {
         );
         return result;
       },
+      listFiles: async () => {
+        // List top-level files/folders for the empty-`@` mention popup. Without
+        // this the popup is empty until the user types at least one character,
+        // which makes the affordance feel broken on first discovery.
+        const serverClient = selectedWorkspaceEndpoint?.client ?? client;
+        const workspaceIdForListing = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId;
+        if (!serverClient || !workspaceIdForListing) return [];
+        try {
+          const result = await serverClient.listWorkspaceDirectory(workspaceIdForListing, "");
+          return result.items
+            .filter((entry) => entry.kind === "file" || entry.kind === "dir")
+            .map((entry) => entry.path)
+            .slice(0, 50);
+        } catch {
+          return [];
+        }
+      },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
       onRevertToMessage: async (messageId: string, sessionId: string) => {

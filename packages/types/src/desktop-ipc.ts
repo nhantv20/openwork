@@ -495,6 +495,7 @@ export type DesktopCommandMap = {
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };
   __revealItemInDir: { args: [target: string]; result: unknown };
+  __openInEditor: { args: [target: string, editorCommand: string]; result: unknown };
   __getFileIcon: { args: [target: string, size?: "small" | "normal" | "large"]; result: string | null };
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };

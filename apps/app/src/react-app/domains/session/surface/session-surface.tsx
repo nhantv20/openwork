@@ -123,6 +123,7 @@ export type SessionSurfaceProps = {
   listCommands: () => Promise<import("@/app/types").SlashCommandOption[]>;
   recentFiles: string[];
   searchFiles: (query: string) => Promise<string[]>;
+  listFiles: () => Promise<string[]>;
   isRemoteWorkspace: boolean;
   isSandboxWorkspace: boolean;
   todos?: TodoItem[];
@@ -923,7 +924,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
       toast.success(t("composer.agent_selected", { agent: value }));
       return;
     }
-    setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, `@${encodeComposerMentionValue(value)} `));
+    // If the draft already ends in an `@query` (typical when inserting from
+    // the autocomplete popup), replace it. Otherwise — e.g. when the user
+    // drops a file with an empty draft — append a fresh mention so the
+    // dropped file still appears in the chat.
+    const mentionText = `@${encodeComposerMentionValue(value)} `;
+    const replaced = draft.replace(/@([^\s@]*)$/, mentionText);
+    const next = replaced === draft ? `${draft}${mentionText}` : replaced;
+    setComposerDraft(props.sessionId, next);
     setComposerMentions(props.sessionId, { ...mentions, [value]: kind });
     // Pre-flight Computer Use permissions when an app is mentioned so missing
     // Accessibility / Screen Recording grants surface before send, not as a
@@ -946,6 +954,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
       })();
     }
   };
+
+  // Read a file from the workspace and append its content to the composer
+  // draft as a fenced code block. Used when the user drops a file from the
+  // file tree into the chat — way more useful than a bare mention because
+  // the agent gets the file body in the prompt immediately.
+  // (Removed in v0.3: user prefers a plain `@filename` mention so the prompt
+  // is short and the agent decides whether to read the file via its tools.)
 
   const handlePasteText = (text: string) => {
     const id = `paste-${Math.random().toString(36).slice(2)}`;
@@ -1392,6 +1407,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onOpenSettingsSection={props.onOpenSettingsSection}
         recentFiles={props.recentFiles}
         searchFiles={props.searchFiles}
+        listFiles={props.listFiles}
         onInsertMention={handleInsertMention}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}

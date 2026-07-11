@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
+import { Download, ExternalLink, FolderOpen, RefreshCw, X } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -139,6 +139,71 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
+
+  // Auto-reload: poll file mtime and invalidate query when it changes.
+  // Pauses when tab is hidden or when user is editing the artifact inline.
+  useEffect(() => {
+    if (target.kind !== "file") return;
+    if (isTextContent(target) && editing) return;
+    const currentUpdatedAt = data?.updatedAt;
+    if (currentUpdatedAt == null) return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== "visible") return;
+      try {
+        const stat = await client.statWorkspaceFile(workspaceId, target.value);
+        if (cancelled) return;
+        if (stat.updatedAt != null && stat.updatedAt > currentUpdatedAt) {
+          await queryClient.invalidateQueries({
+            queryKey: ["artifact-panel", workspaceId, target.id],
+          });
+          toast.info(`Đã cập nhật: ${target.name}`, {
+            description: "File thay đổi trên đĩa, preview đã tự reload.",
+            duration: 3000,
+          });
+        }
+      } catch {
+        // File may be missing, locked, or workspace disconnected — ignore.
+      }
+    };
+
+    const interval = window.setInterval(poll, 3000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [
+    client,
+    workspaceId,
+    target,
+    data?.updatedAt,
+    editing,
+    queryClient,
+  ]);
+
+  // Listen for the global Cmd/Ctrl+Shift+R reload event dispatched by the
+  // shell. We invalidate the artifact query instead of touching the on-disk
+  // file so the next read is the source of truth.
+  useEffect(() => {
+    const handler = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["artifact-panel", workspaceId, target.id],
+      });
+    };
+    window.addEventListener("openwork:reload-artifact-preview", handler);
+    return () => window.removeEventListener("openwork:reload-artifact-preview", handler);
+  }, [queryClient, workspaceId, target.id]);
 
   const [binaryObjectUrl, setBinaryObjectUrl] = useState<string | null>(null);
 
@@ -359,6 +424,26 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
               )}
             />
             <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={(
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["artifact-panel", workspaceId, target.id],
+                    });
+                  }}
+                  disabled={isLoading}
+                  aria-label="Reload artifact"
+                >
+                  <RefreshCw className={isLoading ? "animate-spin" : undefined} />
+                </Button>
+              )}
+            />
+            <TooltipContent>Reload file</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
