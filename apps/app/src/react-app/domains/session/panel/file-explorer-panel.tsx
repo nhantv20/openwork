@@ -419,18 +419,28 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     enabled: !!client && !!workspaceId,
   });
 
-  // First-time bootstrap: when the workspace loads, if the persisted state has
-  // no expand info yet, auto-expand the first two root dirs so the panel
-  // doesn't look empty. After that the user owns the state and the panel
-  // remembers their choices across mode switches and restarts.
+  // Build the root tree from the workspace listing whenever (a) the data
+  // changes, or (b) the workspace changes. We do this regardless of whether
+  // the user has a persisted expand state, otherwise the tree would be
+  // empty for any workspace the user has visited before.
+  //
+  // The persisted state is only consulted to decide whether to
+  // auto-expand the first two root dirs on the user's *first* visit to a
+  // workspace — after that the user owns the state.
   useEffect(() => {
     if (!data?.items) return;
     if (!workspaceId) return;
-    const persisted = useFileExplorerStore.getState().byWorkspace[workspaceId];
-    if (persisted) return; // user already has state for this workspace
 
+    const persisted = useFileExplorerStore.getState().byWorkspace[workspaceId];
     const newTree = buildTree(data.items, new Set());
     setTree(newTree);
+
+    if (persisted) {
+      // Returning user: their expand state lives in the store, and loadDirChildren
+      // is kicked off by the user clicking a folder. Nothing else to do here.
+      return;
+    }
+
     const rootDirs = newTree.filter((n) => n.kind === "directory").map((n) => n.path);
     if (rootDirs.length === 0) return;
 
