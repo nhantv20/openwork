@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useFileExplorerStore, useWorkspaceExpandedPaths } from "./file-explorer-store";
 
 const EDITOR_OPTIONS: ReadonlyArray<{ id: string; label: string; command: string }> = [
   { id: "vscode", label: "VS Code", command: "code" },
@@ -361,13 +362,17 @@ function FileNode({
 }
 
 export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSelect, onClose }: FileExplorerPanelProps) {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const { expanded: expandedPaths, selectedPath } = useWorkspaceExpandedPaths(workspaceId);
+  const toggleExpanded = useFileExplorerStore((state) => state.toggleExpanded);
+  const expandMany = useFileExplorerStore((state) => state.expand);
+  const collapseOne = useFileExplorerStore((state) => state.collapse);
+  const setSelectedPath = useFileExplorerStore((state) => state.setSelected);
   const parentRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   // Snapshot the user-chosen expand state when entering search mode so we can
   // restore it on clear. Avoids stomping on manual expansion while searching.
+  // Snapshot lives in a ref so it doesn't trigger re-renders itself.
   const savedExpandedRef = useRef<Set<string> | null>(null);
 
   const projectName = useMemo(() => {
@@ -381,22 +386,38 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
     enabled: !!client && !!workspaceId,
   });
 
+  // First-time bootstrap: when the workspace loads, if the persisted state has
+  // no expand info yet, auto-expand the first two root dirs so the panel
+  // doesn't look empty. After that the user owns the state and the panel
+  // remembers their choices across mode switches and restarts.
   useEffect(() => {
-    if (data?.items) {
-      const newTree = buildTree(data.items, expandedPaths);
-      setTree(newTree);
+    if (!data?.items) return;
+    if (!workspaceId) return;
+    const persisted = useFileExplorerStore.getState().byWorkspace[workspaceId];
+    if (persisted) return; // user already has state for this workspace
 
-      const rootDirs = newTree.filter((n) => n.kind === "directory").map((n) => n.path);
-      if (rootDirs.length > 0 && expandedPaths.size === 0) {
-        const initialExpanded = new Set(rootDirs.slice(0, 2));
-        setExpandedPaths(initialExpanded);
-        for (const dir of initialExpanded) {
-          void loadDirChildren(dir);
-        }
-      }
+    const newTree = buildTree(data.items, new Set());
+    setTree(newTree);
+    const rootDirs = newTree.filter((n) => n.kind === "directory").map((n) => n.path);
+    if (rootDirs.length === 0) return;
+
+    const initialExpanded = rootDirs.slice(0, 2);
+    expandMany(workspaceId, initialExpanded);
+    for (const dir of initialExpanded) {
+      void loadDirChildren(dir, new Set(initialExpanded));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, workspaceId]);
+
+  // Keep the tree shape in sync with the persisted expand set. Whenever the
+  // expand set changes (e.g. user clicked a folder, or the search effect
+  // expanded everything), rebuild the tree so each node's `isExpanded` flag
+  // matches the persisted state.
+  useEffect(() => {
+    if (!data?.items) return;
+    setTree(buildTree(data.items, expandedPaths));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, expandedPaths]);
 
   // Search behaviour: when the query is non-empty, expand every directory so
   // matches nested deep in the tree are reachable, and remember the user's
@@ -405,32 +426,39 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
   // descendants.
   useEffect(() => {
     const trimmed = searchQuery.trim();
+    if (!workspaceId) return;
     if (trimmed.length > 0) {
       if (savedExpandedRef.current === null) {
         savedExpandedRef.current = new Set(expandedPaths);
       }
       const allDirs = collectDirectoryPaths(tree);
-      const allPaths = new Set(allDirs);
       const needExpand = allDirs.filter((p) => !expandedPaths.has(p));
       if (needExpand.length > 0) {
-        setExpandedPaths(new Set([...expandedPaths, ...allPaths]));
+        const next = new Set(expandedPaths);
+        for (const dir of needExpand) next.add(dir);
+        expandMany(workspaceId, [...next]);
         for (const dir of needExpand) {
-          void loadDirChildren(dir);
+          void loadDirChildren(dir, next);
         }
       }
     } else if (savedExpandedRef.current !== null) {
-      setExpandedPaths(savedExpandedRef.current);
+      // Restore: collapse every directory that wasn't in the snapshot.
+      const snapshot = savedExpandedRef.current;
       savedExpandedRef.current = null;
+      const toCollapse = [...expandedPaths].filter((p) => !snapshot.has(p));
+      for (const dir of toCollapse) {
+        collapseOne(workspaceId, dir);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, tree]);
+  }, [searchQuery, tree, workspaceId]);
 
   const loadDirChildren = useCallback(
-    async (path: string) => {
+    async (path: string, expanded: Set<string>) => {
       if (!client || !workspaceId) return;
       try {
         const result = await client.listWorkspaceDirectory(workspaceId, path);
-        const children = buildTree(result.items, expandedPaths);
+        const children = buildTree(result.items, expanded);
 
         setTree((prev) => {
           const insertChildren = (nodes: TreeNode[]): TreeNode[] => {
@@ -450,50 +478,34 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
         console.error("Failed to load directory:", path, err);
       }
     },
-    [client, workspaceId, expandedPaths],
+    [client, workspaceId],
   );
 
   const expandDir = useCallback(
     async (path: string) => {
-      await loadDirChildren(path);
-      setExpandedPaths((prev) => new Set([...prev, path]));
+      if (!workspaceId) return;
+      // Make sure the directory contents are loaded before we mark it expanded,
+      // otherwise the tree will show an empty folder.
+      await loadDirChildren(path, new Set([...expandedPaths, path]));
+      expandMany(workspaceId, [path]);
     },
-    [loadDirChildren],
+    [loadDirChildren, expandedPaths, expandMany, workspaceId],
   );
 
-  const toggleDir = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-
-    setTree((prev) => {
-      const toggleInTree = (nodes: TreeNode[]): TreeNode[] => {
-        return nodes.map((n) => {
-          if (n.path === path && n.kind === "directory") {
-            return { ...n, isExpanded: !n.isExpanded };
-          }
-          if (n.children.length > 0) {
-            return { ...n, children: toggleInTree(n.children) };
-          }
-          return n;
-        });
-      };
-      return toggleInTree(prev);
-    });
-  }, []);
+  const toggleDir = useCallback(
+    (path: string) => {
+      if (!workspaceId) return;
+      toggleExpanded(workspaceId, path);
+    },
+    [toggleExpanded, workspaceId],
+  );
 
   const handleToggle = useCallback(
     (path: string) => {
       if (expandedPaths.has(path)) {
         toggleDir(path);
       } else {
-        expandDir(path);
+        void expandDir(path);
       }
     },
     [expandedPaths, toggleDir, expandDir],
@@ -502,10 +514,12 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
   const selectFile = useCallback(
     (path: string) => {
       const preview = classifyOpenTarget(path, "file");
-      setSelectedPath(path);
+      if (workspaceId) {
+        setSelectedPath(workspaceId, path);
+      }
       onFileSelect?.(path, preview);
     },
-    [onFileSelect],
+    [onFileSelect, workspaceId, setSelectedPath],
   );
 
   const absolutePath = useCallback(

@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 
-export const PERSISTED_PANEL_TAB_STORE_KEY = "openwork:panel-tabs:v1";
+export const PERSISTED_PANEL_TAB_STORE_KEY = "openwork:panel-tabs:v2";
 
 export type PanelTabType = "artifact" | "browser";
 
@@ -27,6 +27,9 @@ export type SessionPanelState = {
 type PersistedPanelTabRef = {
   id: string;
   type: PanelTabType;
+  label: string;
+  /** Discriminator used to restore an artifact tab. */
+  preview?: OpenTargetPreview;
 };
 
 type PersistedSessionPanelState = {
@@ -180,18 +183,33 @@ function mergePersistedSessions(
   const sessions: Record<string, SessionPanelState> = {};
 
   for (const [sessionId, session] of Object.entries(persisted.sessions)) {
-    const tabs = session.tabs
-      .filter(({ type }) => type === "browser")
-      .map(({ id }): PanelTab => ({
-        id,
-        type: "browser",
-        label: "New tab",
-        url: "",
-        favicon: null,
-        status: "ready",
-        canGoBack: false,
-        canGoForward: false,
-      }));
+    const tabs: PanelTab[] = session.tabs
+      .map(({ id, type, label, preview }): PanelTab | null => {
+        if (type === "browser") {
+          // Browser tabs get rehydrated with safe defaults; the live browser
+          // state arrives via syncBrowserTabs once Electron is up.
+          return {
+            id,
+            type: "browser",
+            label: "New tab",
+            url: "",
+            favicon: null,
+            status: "ready",
+            canGoBack: false,
+            canGoForward: false,
+          };
+        }
+        if (type === "artifact" && preview) {
+          return {
+            id,
+            type: "artifact",
+            label,
+            preview,
+          };
+        }
+        return null;
+      })
+      .filter((tab): tab is PanelTab => tab !== null);
 
     sessions[sessionId] = {
       tabs,
@@ -384,9 +402,16 @@ export const usePanelTabStore = create<PanelTabStore>()(
       partialize: (state) => ({
         sessions: Object.fromEntries(
           Object.entries(state.sessions).map(([sessionId, session]) => {
-            const tabs = session.tabs
-              .filter((tab) => tab.type === "browser")
-              .map(({ id, type }) => ({ id, type }));
+            // Persist both browser and artifact tabs so the file previews
+            // the user had open survive a refresh. We strip the volatile
+            // fields (url/favicon/status/canGoBack/canGoForward on browser
+            // tabs) and only keep what is needed to recreate the tab.
+            const tabs: PersistedPanelTabRef[] = session.tabs.map((tab) => {
+              if (tab.type === "artifact") {
+                return { id: tab.id, type: "artifact", label: tab.label, preview: tab.preview };
+              }
+              return { id: tab.id, type: "browser", label: tab.label };
+            });
 
             return [
               sessionId,
