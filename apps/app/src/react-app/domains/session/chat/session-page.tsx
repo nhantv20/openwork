@@ -1376,7 +1376,22 @@ export function SessionPage(props: SessionPageProps) {
           </aside>
           </div>
         </SidebarInset>
-        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        {shellConfig.sidebar ? (
+          <SidebarTrigger
+            aria-label="Toggle sidebar"
+            title="Toggle sidebar"
+            className={cn(
+              "mac:absolute mac:top-[3px] mac:z-50 mac:flex mac:h-7 mac:w-7 mac:items-center mac:justify-center mac:rounded-full mac:border mac:border-border mac:bg-background mac:shadow-sm titlebar-no-drag mac:transition-[left,transform] mac:duration-200 mac:ease-out hover:mac:bg-accent",
+              sidebarOpen
+                ? // Sidebar visible — sit on the right edge of the sidebar
+                  // column, on the same row as the macOS traffic lights.
+                  "mac:left-[var(--sidebar-width)] mac:-translate-x-1/2"
+                : // Sidebar hidden — slide left to sit right next to the macOS
+                  // traffic lights so it doesn't dangle in empty space.
+                  "mac:left-[78px] mac:translate-x-0",
+            )}
+          />
+        ) : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}
