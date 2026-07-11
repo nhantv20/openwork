@@ -7,6 +7,7 @@ import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
 import { SnapshotStore } from "../file-snapshots.js";
 import { fireMaybeSnapshot } from "../snapshot-middleware.js";
+import { normalizeWorkspaceRelativePath } from "../server/normalize-path.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -43,41 +44,6 @@ function resolveInboxDir(workspaceRoot: string): string {
 
 function resolveOutboxDir(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "openwork", "outbox");
-}
-
-export function normalizeWorkspaceRelativePath(input: string, options: { allowSubdirs: boolean }): string {
-  const raw = String(input ?? "").trim();
-  if (!raw) {
-    throw new ApiError(400, "invalid_path", "Path is required");
-  }
-  if (raw.includes("\u0000")) {
-    throw new ApiError(400, "invalid_path", "Path contains null byte");
-  }
-
-  // A lot of user-facing surfaces (artifacts, tool logs) reference files as
-  // `workspace/<path>` or `/workspace/<path>`. The server API expects
-  // workspace-relative paths, so normalize those common prefixes here.
-  let normalized = raw.replace(/\\/g, "/");
-  normalized = normalized.replace(/^\/+/, "");
-  normalized = normalized.replace(/^\.\//, "");
-  normalized = normalized.replace(/^workspaces\/[^/]+\//i, "");
-  normalized = normalized.replace(/^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\//i, "");
-  normalized = normalized.replace(/^workspace\//, "");
-  normalized = normalized.replace(/^\/+/, "");
-
-  const parts = normalized.split("/").filter(Boolean);
-  if (!parts.length) {
-    throw new ApiError(400, "invalid_path", "Path is required");
-  }
-  if (!options.allowSubdirs && parts.length > 1) {
-    throw new ApiError(400, "invalid_path", "Subdirectories are not allowed");
-  }
-  for (const part of parts) {
-    if (part === "." || part === "..") {
-      throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
-    }
-  }
-  return parts.join("/");
 }
 
 export function isBlockedWorkspaceFilePath(relativePath: string): boolean {

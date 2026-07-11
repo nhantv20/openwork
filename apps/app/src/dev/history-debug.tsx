@@ -42,6 +42,7 @@ export function HistoryDebugPage() {
   const [count, setCount] = useState(0);
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [lastContent, setLastContent] = useState<string | null>(null);
 
   const refresh = useMemo(
     () => async () => {
@@ -82,6 +83,26 @@ export function HistoryDebugPage() {
     setLastError(null);
     try {
       await bridge.remove({ workspaceId, snapshotId });
+      await refresh();
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onGetContent = async (snapshotId: string) => {
+    setLastError(null);
+    try {
+      const result = await bridge.getContent({ workspaceId, filePath, snapshotId });
+      setLastContent(result.content);
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onRestore = async (snapshotId: string) => {
+    setLastError(null);
+    try {
+      await bridge.restore({ workspaceId, filePath, snapshotId });
       await refresh();
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
@@ -173,7 +194,7 @@ export function HistoryDebugPage() {
                 <th>size</th>
                 <th>trigger</th>
                 <th>hash (short)</th>
-                <th></th>
+                <th>actions</th>
               </tr>
             </thead>
             <tbody>
@@ -184,7 +205,23 @@ export function HistoryDebugPage() {
                   <td>{item.size} B</td>
                   <td>{item.trigger}</td>
                   <td className="font-mono text-[11px]">{item.contentHash.slice(0, 8)}…</td>
-                  <td>
+                  <td className="space-x-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void onGetContent(item.id)}
+                      data-testid="dev-history-get-content"
+                    >
+                      Get
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void onRestore(item.id)}
+                      data-testid="dev-history-restore"
+                    >
+                      Restore
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -199,6 +236,14 @@ export function HistoryDebugPage() {
             </tbody>
           </table>
         )}
+        {lastContent ? (
+          <pre
+            className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-dls-border bg-dls-sidebar/40 p-2 text-[11px] font-mono text-dls-text"
+            data-testid="dev-history-content-preview"
+          >
+            {lastContent}
+          </pre>
+        ) : null}
       </section>
     </div>
   );
