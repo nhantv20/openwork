@@ -66,3 +66,20 @@ opencode.jsonc
 transcript-analysis
 # Eval runner output
 evals/results/
+
+# drawio-ai-kit integration: ignore local build outputs.
+# Users regenerate these from their own build scripts via
+# `pnpm drawio:aws:build`; they should NOT be committed unless the user
+# explicitly wants the diagram in the repo.
+diagrams/aws/*.drawio
+diagrams/aws/*.png
+diagrams/azure/*.drawio
+diagrams/azure/*.png
+diagrams/gcp/*.drawio
+diagrams/gcp/*.png
+diagrams/databricks/*.drawio
+diagrams/databricks/*.png
+diagrams/bpmn/*.drawio
+diagrams/bpmn/*.png
+# Smoke-test output from `pnpm drawio:aws:smoke`
+diagrams/aws/smoke-*.drawio
