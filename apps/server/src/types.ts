@@ -238,3 +238,28 @@ export interface AuditEntry {
   summary: string;
   timestamp: number;
 }
+
+/**
+ * A point-in-time snapshot of a file's content, stored in `runtime.sqlite`
+ * (table `file_snapshots`). Used by Phase 6 (Version History) to back the
+ * per-file history list, manual "Save snapshot" button, and 1-click restore.
+ *
+ * Snapshots are deduplicated by `(workspace_id, file_path, content_hash)` via
+ * a UNIQUE index — saving the same content twice is a no-op (caller gets the
+ * existing row back via `id`).
+ */
+export type FileSnapshotTrigger = "auto" | "manual";
+
+export interface FileSnapshot {
+  id: string;
+  workspaceId: string;
+  filePath: string;
+  contentHash: string;
+  /** UTF-8 text content. Binary files are not snapshotted (caller's job to skip). */
+  content: string;
+  size: number;
+  createdAt: number;
+  trigger: FileSnapshotTrigger;
+  /** Optional `mtimeMs:size` revision from `file-sessions.ts` for cross-referencing. */
+  revision: string | null;
+}

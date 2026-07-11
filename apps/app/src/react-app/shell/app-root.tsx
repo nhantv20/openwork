@@ -33,6 +33,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { WelcomeRoute } from "./welcome-route";
+import { HistoryDebugPage } from "../../dev/history-debug";
 
 
 type DenSigninGateProps = {
@@ -316,6 +317,16 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              {import.meta.env.DEV ? (
+                <Route
+                  path="/dev/history"
+                  element={
+                    <DevProfiler id="HistoryDebug">
+                      <HistoryDebugPage />
+                    </DevProfiler>
+                  }
+                />
+              ) : null}
               {/* Default + fallback: land on the session view. Users open
                   settings deliberately via the sidebar or command palette. */}
               <Route path="/" element={<Navigate to="/session" replace />} />

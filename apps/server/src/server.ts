@@ -61,6 +61,7 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
+import { addDevHistoryRoutes } from "./dev/history-debug-handler.js";
 import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
@@ -1353,6 +1354,10 @@ function createRoutes(
     createWorkspaceOpencodeClient,
     unwrapOpencodeResult,
   });
+
+  // Dev-only: `/_dev/history` React panel drives the snapshot store directly.
+  // Self-skips when OPENWORK_DEV_MODE !== "1".
+  addDevHistoryRoutes({ routes, config, jsonResponse, readJsonBody });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
