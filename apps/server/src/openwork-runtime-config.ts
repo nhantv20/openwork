@@ -12,11 +12,10 @@
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
-import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { EnvService } from "./env-file.js";
 import {
   openworkExtensionsPreviewPluginPath,
   openworkCapabilitiesKnowledgePluginPath,
@@ -37,68 +36,55 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Read the `provider` section from the global opencode config
- * (`~/.config/opencode/opencode.json` or `.jsonc`) so custom providers
- * defined there are available in every workspace without per-workspace
- * config files.
- */
-/**
- * Resolve the global opencode config file path by checking known locations:
- *
- * 1. `$OPENCODE_CONFIG_DIR/opencode.json(c)` — explicit override (dev mode)
- * 2. `~/.config/opencode/opencode.json(c)` — standard location (production)
- * 3. `$XDG_CONFIG_HOME/opencode/opencode.json(c)` — XDG location (dev mode)
- * 4. `/Users/<USER>/.config/opencode/opencode.json(c)` — real home when
- *    $HOME is sandboxed to a dev data dir (macOS dev mode).
- *
- * The first existing file wins.
- */
-function resolveGlobalOpencodeConfigPath(): string | null {
-  const seen = new Set<string>();
+const FPT_DEFAULT_MODELS: Record<string, unknown> = {
+  "Qwen3.6-27B": { name: "Qwen3.6-27B" },
+  "DeepSeek-V4-Flash": { name: "DeepSeek-V4-Flash" },
+};
 
-  function add(base: string) {
-    for (const name of ["opencode.jsonc", "opencode.json"]) {
-      const candidate = join(base, name);
-      if (!seen.has(candidate)) seen.add(candidate);
+const FPT_DEFAULT_BASE_URL = "https://mkp-api.fptcloud.com/v1";
+
+/**
+ * Read FPT Cloud AI configuration from user environment variables
+ * (set via Settings → Environment).
+ *
+ * - `FPT_API_KEY` (required) — API key to activate the provider
+ * - `FPT_CONFIG` (optional) — JSON string to override models / baseURL:
+ *     { "models": { "Model-X": { "name": "Model-X" } }, "baseURL": "..." }
+ *
+ * Returns `null` when `FPT_API_KEY` is not set (provider not configured).
+ */
+async function readFptProviderFromEnv(): Promise<Record<string, unknown> | null> {
+  const env = await EnvService.readForInjection();
+  const apiKey = env.FPT_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  let models = FPT_DEFAULT_MODELS;
+  let baseURL = FPT_DEFAULT_BASE_URL;
+
+  const rawConfig = env.FPT_CONFIG?.trim();
+  if (rawConfig) {
+    try {
+      const parsed = JSON.parse(rawConfig) as Record<string, unknown>;
+      if (isRecord(parsed.models)) models = parsed.models;
+      if (typeof parsed.baseURL === "string" && parsed.baseURL) baseURL = parsed.baseURL;
+    } catch {
+      // Ignore invalid JSON — fall back to defaults
     }
   }
 
-  // 1. OPENCODE_CONFIG_DIR (dev mode override)
-  const configDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  if (configDir) add(configDir);
-
-  // 2. Standard ~/.config/opencode/
-  add(join(homedir(), ".config", "opencode"));
-
-  // 3. XDG_CONFIG_HOME (set in dev mode)
-  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
-  if (xdgConfigHome && xdgConfigHome !== join(homedir(), ".config")) {
-    add(join(xdgConfigHome, "opencode"));
-  }
-
-  // 4. Real home on macOS (HOME is sandboxed in dev mode, but USER is not)
-  if (process.platform === "darwin" && process.env.USER) {
-    add(join("/Users", process.env.USER, ".config", "opencode"));
-  }
-
-  for (const candidate of seen) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-function readGlobalProvider(): Record<string, unknown> {
-  const globalPath = resolveGlobalOpencodeConfigPath();
-  if (!globalPath) return {};
-  try {
-    const raw = readFileSync(globalPath, "utf8");
-    const parsed = JSON.parse(raw);
-    const provider = isRecord(parsed) && isRecord(parsed.provider) ? parsed.provider : {};
-    return provider;
-  } catch {
-    return {};
-  }
+  return {
+    fpt: {
+      name: "fpt",
+      npm: "@ai-sdk/openai-compatible",
+      models,
+      options: {
+        baseURL,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      },
+    },
+  };
 }
 
 const OPENWORK_AGENT_PROMPT = `You are OpenWork.
@@ -141,9 +127,11 @@ export async function buildOpenworkRuntimeConfigObject(
 ): Promise<Record<string, unknown>> {
   const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
-  const globalProvider = readGlobalProvider();
   const runtimeProvider = isRecord(runtimeConfig.provider) ? runtimeConfig.provider : {};
-  const mergedProvider = { ...globalProvider, ...runtimeProvider };
+  const fptProvider = await readFptProviderFromEnv();
+  const mergedProvider = fptProvider
+    ? { ...fptProvider, ...runtimeProvider }
+    : runtimeProvider;
   return {
     ...runtimeConfig,
     ...(mergedProvider ? { provider: mergedProvider } : {}),
