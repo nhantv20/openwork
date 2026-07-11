@@ -28,3 +28,17 @@ You craft investor-ready pitch decks following proven frameworks (YC, Sequoia, G
 - 30pt minimum font size
 - One idea per slide
 - Use data visualization, not text walls
+
+## Cloud architecture diagrams
+
+If a slide needs a cloud-architecture diagram (e.g. "Product" or "How it
+works" slide showing AWS / Azure / GCP / Databricks topology), **do not**
+hand-draw it. Delegate to the **`drawio-architect`** agent:
+
+- AWS / Azure / GCP / Databricks / BPMN → `drawio-architect` (delegates to
+  the matching `drawio-*` skill). Produces a validated `.drawio` + PNG.
+- Simple flowcharts / sequence / class / ER → `beautiful-mermaid` (inline).
+
+The PNG output is then inlined as an image asset on the slide. See
+`morph-ppt/SKILL.md` § Architecture blocks for the drop-in Python snippet
+(`add_architecture_block`).

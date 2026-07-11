@@ -146,6 +146,36 @@ Suggested layout:
 <user-project>/diagrams/aws/<name>.png
 ```
 
+## 7. Hand-off to downstream skills
+
+The PNG output is the bridge to other skills:
+
+- **Slide deck** → hand the PNG to `morph-ppt` as an "architecture block"
+  (see `morph-ppt/SKILL.md` § Architecture blocks). Provide the absolute
+  path; morph-ppt will inline it as a 16:9 image asset.
+- **Word document** → hand the PNG to `word-creator`. Provide the absolute
+  path; it will be embedded at native resolution.
+- **Re-render later** → if PNG was skipped because the draw.io desktop CLI
+  was missing at build time, run:
+  ```bash
+  pnpm drawio:export-png --in <abs-path>/<name>.drawio --out <abs-path>/<name>.png
+  ```
+  This is the standalone re-render path; it does NOT re-run validate / audit.
+
+## 8. Install helper (when draw.io desktop CLI is missing)
+
+The build pipeline needs the [draw.io desktop
+CLI](https://github.com/jgraph/drawio-desktop/releases) to produce PNG. If the
+doctor reports it missing, run:
+
+```bash
+pnpm drawio:install:drawio-cli   # prints install steps for current OS
+# Then either add `drawio` to PATH, or set DRAWIO_CLI=/absolute/path/to/drawio
+```
+
+Without the CLI, the build still produces a valid `.drawio` file. PNG render
+is skipped with a clear warning — never silent.
+
 ## Container nesting (authoritative order)
 
 ```

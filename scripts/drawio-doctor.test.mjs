@@ -132,6 +132,120 @@ test("scripts/drawio-install.mjs is a syntactically valid ESM module", () => {
   assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
 });
 
+// -------- Phase 1: PNG export pipeline ----------------------------------------
+
+test("scripts/drawio-export-png.mjs is a syntactically valid ESM module", () => {
+  const result = spawnSync(process.execPath, ["--check", join(REPO_ROOT, "scripts/drawio-export-png.mjs")], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
+});
+
+test("drawio-export-png.mjs exits 1 when --in is missing", () => {
+  const result = runScript("scripts/drawio-export-png.mjs");
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--in <path-to\.drawio> is required/);
+});
+
+test("drawio-export-png.mjs exits 1 when --out is missing", () => {
+  const result = runScript("scripts/drawio-export-png.mjs", ["--in", "/tmp/foo.drawio"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--out <path-to\.png> is required/);
+});
+
+test("drawio-export-png.mjs exits 1 when input file does not exist", () => {
+  const result = runScript("scripts/drawio-export-png.mjs", [
+    "--in", "/tmp/__nonexistent__.drawio",
+    "--out", "/tmp/__nope__.png",
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /input not found/);
+});
+
+test("drawio-export-png.mjs exits 1 when input file is empty", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "drawio-test-"));
+  const emptyPath = join(tmp, "empty.drawio");
+  writeFileSync(emptyPath, "");
+  const result = runScript("scripts/drawio-export-png.mjs", [
+    "--in", emptyPath,
+    "--out", join(tmp, "out.png"),
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /input is empty/);
+});
+
+// -------- Phase 6: Multi-domain smokes -----------------------------------------
+
+test("scripts/drawio-azure-smoke.mjs exists and is a valid ESM module", () => {
+  const path = join(REPO_ROOT, "scripts/drawio-azure-smoke.mjs");
+  assert.ok(existsSync(path), `missing smoke: ${path}`);
+  const result = spawnSync(process.execPath, ["--check", path], { encoding: "utf8" });
+  assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
+});
+
+test("scripts/drawio-gcp-smoke.mjs exists and is a valid ESM module", () => {
+  const path = join(REPO_ROOT, "scripts/drawio-gcp-smoke.mjs");
+  assert.ok(existsSync(path), `missing smoke: ${path}`);
+  const result = spawnSync(process.execPath, ["--check", path], { encoding: "utf8" });
+  assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
+});
+
+test("scripts/drawio-databricks-smoke.mjs exists and is a valid ESM module", () => {
+  const path = join(REPO_ROOT, "scripts/drawio-databricks-smoke.mjs");
+  assert.ok(existsSync(path), `missing smoke: ${path}`);
+  const result = spawnSync(process.execPath, ["--check", path], { encoding: "utf8" });
+  assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
+});
+
+test("scripts/drawio-bpmn-smoke.mjs exists and is a valid ESM module", () => {
+  const path = join(REPO_ROOT, "scripts/drawio-bpmn-smoke.mjs");
+  assert.ok(existsSync(path), `missing smoke: ${path}`);
+  const result = spawnSync(process.execPath, ["--check", path], { encoding: "utf8" });
+  assert.equal(result.status, 0, `syntax check failed:\n${result.stderr}`);
+});
+
+test("root package.json declares drawio:smoke:{aws,azure,gcp,databricks,bpmn,all} scripts", () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+  const scripts = pkg.scripts ?? {};
+  for (const key of [
+    "drawio:aws:smoke",
+    "drawio:azure:smoke",
+    "drawio:gcp:smoke",
+    "drawio:databricks:smoke",
+    "drawio:bpmn:smoke",
+    "drawio:smoke:all",
+    "drawio:export-png",
+    "drawio:install:drawio-cli",
+  ]) {
+    assert.ok(scripts[key], `missing package.json script: ${key}`);
+  }
+});
+
+test("morph-ppt SKILL.md references drawio-architect for architecture blocks", () => {
+  const path = join(REPO_ROOT, ".opencode/skills/morph-ppt/SKILL.md");
+  assert.ok(existsSync(path));
+  const text = readFileSync(path, "utf8");
+  assert.match(text, /drawio-architect/i);
+  assert.match(text, /architecture block/i);
+  assert.match(text, /add_architecture_block/);
+});
+
+test("pitch-deck-creator SKILL.md references drawio-architect", () => {
+  const path = join(REPO_ROOT, ".opencode/skills/pitch-deck-creator/SKILL.md");
+  assert.ok(existsSync(path));
+  const text = readFileSync(path, "utf8");
+  assert.match(text, /drawio-architect/i);
+});
+
+test("drawio-aws SKILL.md documents hand-off to morph-ppt / word-creator", () => {
+  const path = join(REPO_ROOT, ".opencode/skills/drawio-aws/SKILL.md");
+  const text = readFileSync(path, "utf8");
+  assert.match(text, /morph-ppt/);
+  assert.match(text, /word-creator/);
+  assert.match(text, /drawio:export-png/);
+  assert.match(text, /drawio:install:drawio-cli/);
+});
+
 test("drawio-* SKILL.md files all exist and reference the upstream kit", () => {
   const expected = ["drawio-aws", "drawio-azure", "drawio-gcp", "drawio-databricks", "drawio-bpmn"];
   for (const name of expected) {

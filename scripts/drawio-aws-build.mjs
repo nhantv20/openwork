@@ -144,14 +144,26 @@ if (args.strict && auditResult.status !== 0) {
   die(4, `audit (strict) exited ${auditResult.status}`);
 }
 
-// 7. Render (optional)
+// 7. Render (PNG) — Phase 1: always try when draw.io CLI is available, fail
+//    loud when --strict and CLI missing. Without --strict, surface a clear
+//    warning + the install hint, then continue (the .drawio file is still
+//    valid and the user can render later via `pnpm drawio:export-png`).
 const drawioCli = process.env.DRAWIO_CLI ?? which("drawio");
 if (skipRender) {
   console.log(`[4/4] render: skipped (--skip-render)`);
-} else if (!drawioCli) {
-  console.log(`[4/4] render: skipped (draw.io CLI not found — install drawio-desktop or set DRAWIO_CLI)`);
   console.log(`       .drawio file is at ${drawioPath}`);
-  console.log(`       rerun with DRAWIO_CLI=/path/to/drawio to produce PNG`);
+  console.log(`       re-run without --skip-render (and with DRAWIO_CLI) to produce PNG`);
+} else if (!drawioCli) {
+  const hint =
+    "draw.io desktop CLI not found. Install from:\n" +
+    "       https://github.com/jgraph/drawio-desktop/releases\n" +
+    "       macOS:  /Applications/draw.io.app/Contents/MacOS/drawio\n" +
+    "       Or set DRAWIO_CLI=/absolute/path/to/drawio";
+  if (args.strict) die(4, `render: cannot produce PNG.\n${hint}`);
+  console.log(`[4/4] render: skipped (draw.io CLI not found)`);
+  console.log(hint.split("\n").map((l) => `       ${l}`).join("\n"));
+  console.log(`       .drawio file is at ${drawioPath}`);
+  console.log(`       rerun with DRAWIO_CLI=/path/to/drawio OR pnpm drawio:export-png --in ${drawioPath} --out ${pngPath}`);
 } else {
   console.log(`[4/4] render: drawio-ai render ${drawioPath} -o ${pngPath}`);
   const renderResult = spawnSync("drawio-ai", ["render", drawioPath, "-o", pngPath], {
@@ -159,7 +171,10 @@ if (skipRender) {
     env: { ...process.env, DRAWIO_CLI: drawioCli },
   });
   if (renderResult.status !== 0) die(4, `render exited ${renderResult.status}`);
-  console.log(`       wrote ${pngPath}`);
+  if (!existsSync(pngPath)) die(4, `render reported success but ${pngPath} was not created`);
+  const pngStat = statSync(pngPath);
+  if (pngStat.size === 0) die(4, `render produced an empty file at ${pngPath}`);
+  console.log(`       wrote ${pngPath} (${pngStat.size} bytes)`);
 }
 
 console.log("");
