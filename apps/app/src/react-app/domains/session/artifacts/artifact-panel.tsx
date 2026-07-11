@@ -18,6 +18,9 @@ import { DiffViewer } from "./viewers/diff-viewer";
 import { DocumentViewer } from "./viewers/document-viewer";
 import { SlidesViewer } from "./viewers/slides-viewer";
 import { HistoryStatusBadge } from "./history-status-badge";
+import { FileHistoryPanel } from "./file-history-panel";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { History as HistoryIcon } from "lucide-react";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -353,6 +356,30 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                 workspaceId={workspaceId}
                 filePath={target.value}
               />
+            ) : null}
+            {target.kind === "file" ? (
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="History"
+                      data-testid="artifact-history-button"
+                    >
+                      <HistoryIcon />
+                    </Button>
+                  }
+                />
+                <PopoverContent className="w-auto p-0" align="end">
+                  <FileHistoryPanel
+                    client={client}
+                    workspaceId={workspaceId}
+                    filePath={target.value}
+                    currentContent={data?.kind === "text" ? data.data : undefined}
+                  />
+                </PopoverContent>
+              </Popover>
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">

@@ -444,6 +444,38 @@ export type OpenworkWorkspaceFileStat = {
   updatedAt?: number;
 };
 
+// Phase 6, slice 6.4 — file snapshot types. The server-side schema is in
+// apps/server/src/types.ts FileSnapshot; the wire format matches.
+export type OpenworkFileSnapshot = {
+  id: string;
+  workspaceId: string;
+  filePath: string;
+  contentHash: string;
+  content?: string;
+  size: number;
+  createdAt: number;
+  trigger: "auto" | "manual";
+  revision: string | null;
+};
+
+export type OpenworkFileSnapshotListResponse = { items: OpenworkFileSnapshot[] };
+export type OpenworkFileSnapshotSaveResponse = {
+  snapshot: OpenworkFileSnapshot;
+  deduped: boolean;
+  trimmed: number;
+};
+export type OpenworkFileSnapshotContentResponse = {
+  content: string;
+  contentHash: string;
+  createdAt: number;
+};
+export type OpenworkFileSnapshotRestoreResponse = {
+  ok: boolean;
+  path: string;
+  newRevision: string;
+  snapshot: OpenworkFileSnapshot;
+};
+
 export type OpenworkWorkspaceDirEntry = {
   name: string;
   path: string;
@@ -1868,6 +1900,36 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         body: payload ?? {},
         timeoutMs: timeouts.config,
       }),
+
+    // Phase 6, slice 6.4 — file-snapshot history.
+    listFileHistory: (workspaceId: string, path: string, opts?: { limit?: number; before?: number }) => {
+      const params = new URLSearchParams({ path });
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.before) params.set("before", String(opts.before));
+      return requestJson<OpenworkFileSnapshotListResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history?${params.toString()}`,
+        { token, hostToken },
+      );
+    },
+    saveFileSnapshot: (workspaceId: string, path: string, content: string, trigger: "auto" | "manual" = "manual") =>
+      requestJson<OpenworkFileSnapshotSaveResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/snapshot?path=${encodeURIComponent(path)}`,
+        { token, hostToken, method: "POST", body: { content, trigger } },
+      ),
+    getFileSnapshotContent: (workspaceId: string, path: string, snapshotId: string) =>
+      requestJson<OpenworkFileSnapshotContentResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/${encodeURIComponent(snapshotId)}/content?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
+    restoreFileSnapshot: (workspaceId: string, path: string, snapshotId: string) =>
+      requestJson<OpenworkFileSnapshotRestoreResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/${encodeURIComponent(snapshotId)}/restore?path=${encodeURIComponent(path)}`,
+        { token, hostToken, method: "POST", body: {} },
+      ),
   };
 }
 
