@@ -442,15 +442,18 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, workspaceId]);
 
-  // Keep the tree shape in sync with the persisted expand set. Whenever the
-  // expand set changes (e.g. user clicked a folder, or the search effect
-  // expanded everything), rebuild the tree so each node's `isExpanded` flag
-  // matches the persisted state.
-  useEffect(() => {
-    if (!data?.items) return;
-    setTree(buildTree(data.items, expandedPaths));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, expandedPaths]);
+  // Note: we intentionally do NOT rebuild the whole tree on every
+  // `expandedPaths` change. The previous version did this and it destroyed
+  // the tree's lazy-loaded descendants: once the user expanded a root
+  // directory, its children list was held in React state via
+  // loadDirChildren → setTree. Rebuilding from `data.items` (which only
+  // contains the root listing) wiped out every deeper level, so clicking a
+  // nested folder did nothing — its node had been thrown away.
+  //
+  // Instead, individual actions (toggleDir, expandDir, loadDirChildren)
+  // update the tree surgically. isExpanded flags get attached to each
+  // node as part of buildTree at load time, and the toggle handler flips
+  // them in place.
 
   // Search behaviour: when the query is non-empty, expand every directory so
   // matches nested deep in the tree are reachable, and remember the user's
@@ -562,7 +565,25 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   const toggleDir = useCallback(
     (path: string) => {
       if (!workspaceId) return;
+      // Update the persisted expand set first so the Set lookup in
+      // flattenTree() reflects the new state on the next render.
       toggleExpanded(workspaceId, path);
+      // Also flip the per-node isExpanded flag so chevron + folder-open icons
+      // stay in sync. flattenTree reads from the Set, but the per-node flag
+      // drives those icons.
+      setTree((prev) => {
+        const toggleInTree = (nodes: TreeNode[]): TreeNode[] =>
+          nodes.map((n) => {
+            if (n.path === path && n.kind === "directory") {
+              return { ...n, isExpanded: !n.isExpanded };
+            }
+            if (n.children.length > 0) {
+              return { ...n, children: toggleInTree(n.children) };
+            }
+            return n;
+          });
+        return toggleInTree(prev);
+      });
     },
     [toggleExpanded, workspaceId],
   );
