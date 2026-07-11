@@ -160,16 +160,92 @@ export async function maybeSnapshotBeforeWrite(
  * Fire-and-forget variant for the write path. The returned promise is
  * deliberately not awaited; any rejection is logged. Use this at the top
  * of the write handler so the snapshot happens in parallel with `writeFile`.
+ *
+ * **Round-4 fix:** when `preRead` is supplied, the snapshot captures THAT
+ * content rather than re-reading the file from disk. This is essential
+ * because the write handler continues with `writeFile(tmp, ...)` +
+ * `rename(tmp, dest)`; if we re-read here we race with that and capture
+ * the new content instead of the pre-write content.
  */
 export function fireMaybeSnapshot(
   config: ServerConfig,
   store: SnapshotStore,
   input: MaybeSnapshotInput,
+  preRead?: { content: string; hash: string; size: number },
 ): void {
+  if (preRead) {
+    snapshotFromContent(config, store, input, preRead).catch((err) => {
+      console.warn(
+        `[snapshot-middleware] unhandled error for ${input.filePath}:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
+    return;
+  }
   maybeSnapshotBeforeWrite(config, store, input).catch((err) => {
     console.warn(
       `[snapshot-middleware] unhandled error for ${input.filePath}:`,
       err instanceof Error ? err.message : err,
     );
   });
+}
+
+async function snapshotFromContent(
+  config: ServerConfig,
+  store: SnapshotStore,
+  input: MaybeSnapshotInput,
+  preRead: { content: string; hash: string; size: number },
+): Promise<void> {
+  if (input.skipAutoSnapshot) return;
+  if (preRead.size === 0) return;
+  if (preRead.size > MAX_SNAPSHOT_BYTES) return;
+  if (looksLikeBinary(preRead.content)) return;
+
+  let result;
+  try {
+    result = await store.save({
+      workspaceId: input.workspaceId,
+      filePath: input.filePath,
+      content: preRead.content,
+      trigger: input.trigger ?? "auto",
+      revision: input.revision ?? null,
+    });
+  } catch (err) {
+    console.warn(
+      `[snapshot-middleware] store.save failed for ${input.filePath}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
+  try {
+    await recordAudit(input.workspaceRoot, {
+      id: `audit_${Date.now().toString(36)}_${result.snapshot.id}`,
+      workspaceId: input.workspaceId,
+      actor: { type: "host" },
+      action: "snapshot-auto",
+      target: input.filePath,
+      summary: `auto-snapshot${result.deduped ? " (deduped)" : ""} of ${input.filePath} (${result.snapshot.size} B)`,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    console.warn(
+      `[snapshot-middleware] recordAudit failed for ${input.filePath}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * Heuristic binary check on a string. We only sniff the first 8KB of code
+ * units for U+0000 (NUL) — same threshold the disk-based check uses.
+ * Catches the common case of binary files being read as UTF-8 replacement
+ * characters; rare false positives on legitimately-NUL-containing text are
+ * an acceptable cost (snapshot just doesn't get created).
+ */
+function looksLikeBinary(text: string): boolean {
+  const sniff = text.length > 8192 ? text.slice(0, 8192) : text;
+  for (let i = 0; i < sniff.length; i += 1) {
+    if (sniff.charCodeAt(i) === 0) return true;
+  }
+  return false;
 }

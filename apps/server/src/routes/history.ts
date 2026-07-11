@@ -15,7 +15,8 @@
  * Route registration order matters: #1-#3 have static tails and must be
  * registered before #4-#5 (which use `:snapshotId`).
  */
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
@@ -39,8 +40,6 @@ export interface RegisterHistoryRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 }
-
-const MAX_DIFF_INPUT_BYTES = 1_000_000;
 
 // ---------------------------------------------------------------------------
 // Changes DB (slice 6.5b)
@@ -167,14 +166,6 @@ function readPathFromQuery(url: URL): string {
     throw new ApiError(400, "invalid_path", "Query param 'path' is required");
   }
   return normalizeWorkspaceRelativePath(value, { allowSubdirs: true });
-}
-
-function readSnapshotIdFromQuery(url: URL): string {
-  const value = url.searchParams.get("snapshotId");
-  if (!value || !value.trim()) {
-    throw new ApiError(400, "invalid_snapshot", "Query param 'snapshotId' is required");
-  }
-  return value.trim();
 }
 
 export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
@@ -308,8 +299,11 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     }
     return jsonResponse({
       diff,
-      fromMeta: fromSnap ? snapshotMeta(fromSnap) : { id: "current", createdAt: 0, size: fromText.length, trigger: "auto" },
-      toMeta: toSnap ? snapshotMeta(toSnap) : { id: "current", createdAt: 0, size: toText.length, trigger: "auto" },
+      // Phase 6 round-4 fix: use byteLength (not string.length) for "current"
+      // meta to match the units used by snapshot rows. Mismatch made the
+      // UI report 2 bytes for a 2-char emoji-only file.
+      fromMeta: fromSnap ? snapshotMeta(fromSnap) : { id: "current", createdAt: 0, size: Buffer.byteLength(fromText, "utf8"), trigger: "auto" },
+      toMeta: toSnap ? snapshotMeta(toSnap) : { id: "current", createdAt: 0, size: Buffer.byteLength(toText, "utf8"), trigger: "auto" },
     });
   });
 
@@ -371,13 +365,34 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     // Phase 6 round-3 review: snapshot the pre-restore state first so
     // restore is itself reversible. The middleware's skipAutoSnapshot
     // flag is what stops THIS write from triggering a recursive auto.
-    fireMaybeSnapshot(config, store, {
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      filePath,
-      revision: currentRevision,
-      skipAutoSnapshot: false, // we DO want a pre-restore snapshot
+    // Phase 6 round-4: pre-read the current file so the snapshot
+    // captures the OLD content even though we overwrite the file right
+    // after. Without preRead, fireMaybeSnapshot would re-read the file
+    // after the write and capture the new (restored) content.
+    const preRestore = await readFile(absolutePath).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return null;
+      throw err;
     });
+    const preRestoreBuffer = preRestore ? Buffer.from(preRestore) : null;
+    fireMaybeSnapshot(
+      config,
+      store,
+      {
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        filePath,
+        revision: currentRevision,
+        skipAutoSnapshot: false, // we DO want a pre-restore snapshot
+        trigger: "manual", // intentional; not an automatic save
+      },
+      preRestoreBuffer
+        ? {
+            content: preRestoreBuffer.toString("utf8"),
+            hash: createHash("sha256").update(preRestoreBuffer).digest("hex"),
+            size: preRestoreBuffer.length,
+          }
+        : undefined,
+    );
 
     // The actual restore write must set skipAutoSnapshot: true to prevent
     // a chain of auto-snapshots. We do this via a direct writeFile rather

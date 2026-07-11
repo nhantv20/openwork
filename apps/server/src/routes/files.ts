@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
+import { createHash } from "node:crypto";
 import { SnapshotStore } from "../file-snapshots.js";
 import { fireMaybeSnapshot } from "../snapshot-middleware.js";
 import { normalizeWorkspaceRelativePath } from "../server/normalize-path.js";
@@ -881,13 +882,30 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         await ensureDir(dirname(entry.absPath));
         const tmp = `${entry.absPath}.tmp-${shortId()}`;
+        // Phase 6 (round-4): pre-read the file BEFORE writing so the
+        // auto-snapshot captures the OLD content, not the new one. The
+        // middleware's preRead parameter accepts the buffer to avoid
+        // re-reading concurrently with the write.
+        const preRead = before ? await readFile(entry.absPath) : null;
+        const preReadBuffer = preRead ? Buffer.from(preRead) : null;
         // Phase 6: snapshot the pre-write content (best-effort, async).
-        fireMaybeSnapshot(config, snapshotStore, {
-          workspaceId: workspace.id,
-          workspaceRoot: workspace.path,
-          filePath: entry.path,
-          revision: currentRevision,
-        });
+        fireMaybeSnapshot(
+          config,
+          snapshotStore,
+          {
+            workspaceId: workspace.id,
+            workspaceRoot: workspace.path,
+            filePath: entry.path,
+            revision: currentRevision,
+          },
+          preReadBuffer
+            ? {
+                content: preReadBuffer.toString("utf8"),
+                hash: createHash("sha256").update(preReadBuffer).digest("hex"),
+                size: preReadBuffer.length,
+              }
+            : undefined,
+        );
         await writeFile(tmp, entry.bytes);
         await rename(tmp, entry.absPath);
         const after = await stat(entry.absPath);
@@ -1169,13 +1187,30 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
+    // Phase 6 (round-4): pre-read the file BEFORE writing so the
+    // auto-snapshot captures the OLD content, not the new one. The
+    // middleware's preRead parameter accepts the buffer to avoid
+    // re-reading concurrently with the write.
+    const preRead = before ? await readFile(absPath) : null;
+    const preReadBuffer = preRead ? Buffer.from(preRead) : null;
     // Phase 6: snapshot the pre-write content (best-effort, async).
-    fireMaybeSnapshot(config, snapshotStore, {
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      filePath: relativePath,
-      revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
-    });
+    fireMaybeSnapshot(
+      config,
+      snapshotStore,
+      {
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        filePath: relativePath,
+        revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
+      },
+      preReadBuffer
+        ? {
+            content: preReadBuffer.toString("utf8"),
+            hash: createHash("sha256").update(preReadBuffer).digest("hex"),
+            size: preReadBuffer.length,
+          }
+        : undefined,
+    );
     await writeFile(tmp, bytes);
     await rename(tmp, absPath);
     const after = await stat(absPath);
@@ -1243,13 +1278,28 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
+    // Phase 6 (round-4): pre-read the file BEFORE writing so the
+    // auto-snapshot captures the OLD content, not the new one.
+    const preRead = before ? await readFile(absPath) : null;
+    const preReadBuffer = preRead ? Buffer.from(preRead) : null;
     // Phase 6: snapshot the pre-write content (best-effort, async).
-    fireMaybeSnapshot(config, snapshotStore, {
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      filePath: relativePath,
-      revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
-    });
+    fireMaybeSnapshot(
+      config,
+      snapshotStore,
+      {
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        filePath: relativePath,
+        revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
+      },
+      preReadBuffer
+        ? {
+            content: preReadBuffer.toString("utf8"),
+            hash: createHash("sha256").update(preReadBuffer).digest("hex"),
+            size: preReadBuffer.length,
+          }
+        : undefined,
+    );
     await writeFile(tmp, content, "utf8");
     await rename(tmp, absPath);
     const after = await stat(absPath);

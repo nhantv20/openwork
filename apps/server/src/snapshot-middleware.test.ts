@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -173,6 +174,40 @@ describe("maybeSnapshotBeforeWrite", () => {
     expect(result.skipped).toBe(false);
     if (result.skipped) return;
     expect(result.snapshot.revision).toBe("1234:56");
+  });
+
+  test("preRead parameter captures supplied content (round-4 race fix)", async () => {
+    // Simulates the route/files.ts pattern: read the file BEFORE the write
+    // and pass the buffer to fireMaybeSnapshot. Without preRead, the
+    // middleware would re-read the file (which has been overwritten by now)
+    // and snapshot the NEW content.
+    const { fireMaybeSnapshot } = await import("./snapshot-middleware.js");
+    await writeFixture("preread.ts", "OLD-content");
+    const store = new SnapshotStore(config);
+    // Simulate the write happening RIGHT NOW: overwrite the file.
+    await writeFixture("preread.ts", "NEW-content");
+    // Fire the pre-read snapshot AFTER the write — but pass the OLD buffer.
+    const oldBuffer = Buffer.from("OLD-content", "utf8");
+    fireMaybeSnapshot(
+      config,
+      store,
+      {
+        workspaceId: "ws_1",
+        workspaceRoot,
+        filePath: "preread.ts",
+      },
+      {
+        content: oldBuffer.toString("utf8"),
+        hash: createHash("sha256").update(oldBuffer).digest("hex"),
+        size: oldBuffer.length,
+      },
+    );
+    // Wait briefly for the fire-and-forget to complete.
+    await new Promise((r) => setTimeout(r, 50));
+    const items = await store.list("ws_1", "preread.ts");
+    // Must contain OLD-content, NOT NEW-content.
+    expect(items.some((s) => s.content === "OLD-content")).toBe(true);
+    expect(items.some((s) => s.content === "NEW-content")).toBe(false);
   });
 
   test("survives race: file deleted between check and read", async () => {

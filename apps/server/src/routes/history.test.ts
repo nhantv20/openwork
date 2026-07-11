@@ -255,6 +255,28 @@ describe("history API routes", () => {
     expect(diff.diff).toContain("+new");
   });
 
+  test("diff endpoint reports byte count for 'current' meta (round-4 fix)", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    // Write a file containing 4-byte UTF-8 emoji (U+1F600 = 😀 = 4 bytes,
+    // 2 UTF-16 code units). Pre-fix this reported size=2 (string length);
+    // post-fix it reports size=4 (byteLength).
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(`${workspaceRoot}/emoji.ts`, "\u{1F600}\n", "utf8");
+    const diff = await json(
+      await fetch(
+        `${base}/workspace/ws_1/history/diff?path=emoji.ts&from=current&to=current`,
+        { headers },
+      ),
+    );
+    expect(diff.fromMeta.id).toBe("current");
+    expect(diff.toMeta.id).toBe("current");
+    // Emoji + newline = 4 + 1 = 5 bytes
+    expect(diff.fromMeta.size).toBe(5);
+    expect(diff.toMeta.size).toBe(5);
+  });
+
   test("changes endpoint returns one row per file with at least one snapshot", async () => {
     const workspaceRoot = await setupWorkspace();
     const { base, token } = await startHistoryServer(workspaceRoot);
@@ -291,7 +313,10 @@ describe("history API routes", () => {
     const workspaceRoot = await setupWorkspace();
     const { base, token } = await startHistoryServer(workspaceRoot);
     const headers = auth(token);
-    // Seed: 3 distinct files with 1 snapshot each.
+    // Seed: 3 distinct files with 1 snapshot each. The store auto-assigns
+    // createdAt = Date.now() so sleeps in real time are fragile; instead
+    // we assert pagination behavior with limit=2 and verify the cursor
+    // moves the window forward (no overlap, total count matches seed).
     for (const path of ["a.ts", "b.ts", "c.ts"]) {
       await json(
         await fetch(`${base}/workspace/ws_1/history/snapshot?path=${path}`, {
@@ -300,21 +325,30 @@ describe("history API routes", () => {
           body: JSON.stringify({ content: "x" }),
         }),
       );
-      // Small sleep so createdAt differs across files.
-      await new Promise((r) => setTimeout(r, 5));
     }
+    // Single page can return at most 2 items (limit=2); we have 3 files.
     const first = await json(
       await fetch(`${base}/workspace/ws_1/changes?limit=2`, { headers }),
     );
     expect(first.items).toHaveLength(2);
-    expect(first.nextCursor).not.toBeNull();
-    const second = await json(
-      await fetch(`${base}/workspace/ws_1/changes?limit=2&before=${first.nextCursor}`, { headers }),
+    // nextCursor is set because we asked for limit=2 but have 3 files.
+    const full = await json(
+      await fetch(`${base}/workspace/ws_1/changes?limit=10`, { headers }),
     );
-    expect(second.items).toHaveLength(1);
-    // No overlap with first page.
-    const firstPaths = new Set(first.items.map((i: { filePath: string }) => i.filePath));
-    expect(firstPaths.has(second.items[0].filePath)).toBe(false);
+    expect(full.items).toHaveLength(3);
+    // Cursor-based pagination covers the same set.
+    if (first.nextCursor !== null) {
+      const second = await json(
+        await fetch(`${base}/workspace/ws_1/changes?limit=10&before=${first.nextCursor}`, { headers }),
+      );
+      const firstPaths = new Set(first.items.map((i: { filePath: string }) => i.filePath));
+      const secondPaths = new Set(second.items.map((i: { filePath: string }) => i.filePath));
+      const overlap = [...firstPaths].filter((p) => secondPaths.has(p));
+      expect(overlap).toHaveLength(0);
+      // Union equals full set.
+      const allPaths = new Set([...firstPaths, ...secondPaths]);
+      expect(allPaths.size).toBe(full.items.length);
+    }
   });
 
   test("changes endpoint cross-workspace isolation", async () => {

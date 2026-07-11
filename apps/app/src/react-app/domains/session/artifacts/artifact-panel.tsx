@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
-import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type OpenTargetPreview, type TextData } from "./open-target";
+import { classifyOpenTarget, isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type OpenTargetPreview, type TextData } from "./open-target";
 import { MAX_TEXT_PREVIEW_BYTES } from "./preview-limits";
 import { AudioPreview, CodePreview, DiffPreview, HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable, VideoPreview } from "./preview";
 import { DiffViewer } from "./viewers/diff-viewer";
@@ -377,6 +377,21 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                     workspaceId={workspaceId}
                     filePath={target.value}
                     currentContent={data?.kind === "text" ? data.data : undefined}
+                    onSelectFile={(path) => {
+                      // Round-4 fix: clicking a row in "All changes" opens
+                      // that file as a new artifact tab. Run the standard
+                      // classifier so the preview kind is populated.
+                      const fileName = path.split("/").pop() ?? path;
+                      const preview = classifyOpenTarget(path, "file");
+                      const newTab: ArtifactPanelTab = {
+                        id: `artifact_${path}`,
+                        type: "artifact",
+                        label: fileName,
+                        preview,
+                      };
+                      usePanelTabStore.getState().openTab(sessionId, newTab);
+                      usePanelTabStore.getState().selectTab(sessionId, newTab.id);
+                    }}
                   />
                 </PopoverContent>
               </Popover>

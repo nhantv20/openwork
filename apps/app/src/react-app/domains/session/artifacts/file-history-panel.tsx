@@ -15,7 +15,7 @@
  * by the Save button (so a manual snapshot captures what's currently
  * being viewed, not stale disk content).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
@@ -56,6 +56,9 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [compare, setCompare] = useState<CompareState>({ kind: "idle" });
+  // Round-4 fix: track the in-flight compare request id so a stale
+  // response from snapshot A doesn't overwrite a fresh click on B.
+  const compareTokenRef = useRef(0);
 
   const changesQuery = useQuery<{ items: Array<{ filePath: string; latestSnapshotAt: number; snapshotCount: number; latestTrigger: "auto" | "manual" }> }>({
     queryKey: ["workspace-changes", workspaceId],
@@ -73,6 +76,9 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
     setSaveError(null);
     try {
       await saveManualSnapshot(currentContent ?? "");
+      // Round-4 fix: a manual save also changes the workspace "all
+      // changes" summary (or creates the entry if it didn't exist).
+      void changesQuery.refetch();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     }
@@ -93,11 +99,15 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
 
   const onCompare = async (snapshotId: string) => {
     if (!client) return;
+    // Bump the token; only the latest call gets to update state.
+    const token = ++compareTokenRef.current;
     setCompare({ kind: "loading", snapshotId });
     try {
       const result = await client.diffFileSnapshots(workspaceId, filePath, snapshotId, "current");
+      if (token !== compareTokenRef.current) return; // stale response
       setCompare({ kind: "ready", snapshotId, diff: result.diff });
     } catch (err) {
+      if (token !== compareTokenRef.current) return; // stale
       setCompare({
         kind: "error",
         snapshotId,

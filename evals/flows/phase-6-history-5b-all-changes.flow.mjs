@@ -29,8 +29,18 @@ export default {
           { timeoutMs: 30_000, label: "dev panel" },
         );
         for (const filePath of ["changes-a.ts", "changes-b.ts"]) {
-          await ctx.fillField('[data-testid="dev-history-file"]', filePath);
-          await ctx.fillField('[data-testid="dev-history-content"]', `content for ${filePath}`);
+          // Round-4 fix: fillField doesn't exist on EvalContext; use eval
+          // with React's native setter + input event.
+          await ctx.eval(`(() => {
+            const fileEl = document.querySelector('[data-testid="dev-history-file"]');
+            const fileSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            fileSetter.call(fileEl, ${JSON.stringify(filePath)});
+            fileEl.dispatchEvent(new Event('input', { bubbles: true }));
+            const contentEl = document.querySelector('[data-testid="dev-history-content"]');
+            const contentSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            contentSetter.call(contentEl, ${JSON.stringify(`content for ${filePath}`)});
+            contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+          })()`);
           await ctx.clickText("Save snapshot");
           // Wait briefly for the new row to appear before moving on.
           await new Promise((r) => setTimeout(r, 200));
