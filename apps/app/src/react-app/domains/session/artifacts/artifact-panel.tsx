@@ -11,8 +11,12 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
-import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
-import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type OpenTargetPreview, type TextData } from "./open-target";
+import { MAX_TEXT_PREVIEW_BYTES } from "./preview-limits";
+import { AudioPreview, CodePreview, DiffPreview, HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable, VideoPreview } from "./preview";
+import { DiffViewer } from "./viewers/diff-viewer";
+import { DocumentViewer } from "./viewers/document-viewer";
+import { SlidesViewer } from "./viewers/slides-viewer";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -34,6 +38,7 @@ type ArtifactPanelProps = {
 };
 
 type ArtifactPanelViewProps = {
+  sessionId: string;
   client: OpenworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
@@ -59,6 +64,20 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
+function textSizeOf(target: OpenTarget, data: TextData | BinaryData | undefined): number | null {
+  if (typeof target.size === "number") return target.size;
+  if (data?.kind === "text") return new Blob([data.data]).size;
+  return null;
+}
+
+function isCodeFile(value: string): boolean {
+  return /\.(ts|tsx|js|jsx|mjs|cjs|css|scss|sass|less|json|jsonc|yaml|yml|xml|py|rb|go|rs|java|kt|swift|php|c|cpp|h|cs|sql|sh|bash|zsh|vue|svelte|astro|mdx|graphql|gql|prisma|dockerfile|toml|ini|env|conf|lua|r|jl|dart|ex|exs|elm|clj|cljs|cljr|scala|hs|purs|ml|fs|fsi|fsx|vb|vbs|asm|s|pl|pm|tcl|rkt|scm|ss|scm)$/i.test(value);
+}
+
+function isDiffFile(value: string): boolean {
+  return /\.(diff|patch)$/i.test(value) || value.endsWith(".diff.txt") || value.endsWith(".patch.txt");
+}
+
 export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
@@ -70,6 +89,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 
   return (
     <ArtifactPanelView
+      sessionId={sessionId}
       client={client}
       workspaceId={workspaceId}
       workspaceRoot={workspaceRoot}
@@ -80,7 +100,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
-function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -244,6 +264,9 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
     });
   };
 
+  const textSize = textSizeOf(target, data);
+  const textTooLarge = textSize !== null && textSize > MAX_TEXT_PREVIEW_BYTES;
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
@@ -366,6 +389,14 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
             saving={isSaving}
             onSave={saveSpreadsheetContent}
           />
+        ) : target.preview === "slides" && binaryObjectUrl ? (
+          <SlidesViewer url={binaryObjectUrl} filePath={target.kind === "file" ? externalPath : undefined} title={target.name} />
+        ) : target.preview === "document" && binaryObjectUrl ? (
+          <DocumentViewer url={binaryObjectUrl} title={target.name} />
+        ) : target.preview === "video" && binaryObjectUrl ? (
+          <VideoPreview url={binaryObjectUrl} title={target.name} />
+        ) : target.preview === "audio" && binaryObjectUrl ? (
+          <AudioPreview url={binaryObjectUrl} title={target.name} />
         ) : target.preview === "html" && data?.kind === "text" ? (
           <HTMLPreview type="text" title={target.name} content={data.data} />
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
@@ -374,8 +405,14 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           <PdfPreview url={binaryObjectUrl} title={target.name} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
+        ) : data?.kind === "text" && isDiffFile(target.value) ? (
+          <DiffViewer diff={data.data} />
+        ) : data?.kind === "text" && textTooLarge ? (
+          <PreviewError message={`Text file (${formatFileSize(textSize ?? 0)}) is too large to preview inline — use the buttons above to download or open externally.`} />
         ) : data?.kind === "text" ? (
-          <PlainText content={data.data} />
+          <CodePreview code={data.data} language={target.value.split(".").pop() ?? "text"} />
+        ) : data?.kind === "binary" && binaryObjectUrl ? (
+          <PreviewError message={`Binary file (${formatFileSize(target.size ?? data.data.byteLength)}) — preview not supported for this format`} />
         ) : (
           <PreviewUnavailable />
         )}

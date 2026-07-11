@@ -132,6 +132,7 @@ export type OpenworkSkillItem = {
   description: string;
   scope: "project" | "global";
   trigger?: string;
+  category?: string;
 };
 
 export type OpenworkSkillContent = {
@@ -441,6 +442,31 @@ export type OpenworkWorkspaceFileStat = {
   kind?: "file" | "dir" | "other";
   size?: number;
   updatedAt?: number;
+};
+
+export type OpenworkWorkspaceDirEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "dir";
+  size: number;
+  updatedAt: number;
+};
+
+export type OpenworkWorkspaceDirList = {
+  path: string;
+  items: OpenworkWorkspaceDirEntry[];
+};
+
+export type OpenworkWorkspaceOrganizeResult = {
+  ok: boolean;
+  processed: number;
+  results: Array<{ path: string; action: string; destination?: string; error?: string }>;
+};
+
+export type OpenworkWorkspaceBatchRenameResult = {
+  ok: boolean;
+  processed: number;
+  results: Array<{ path: string; action: string; newPath?: string; error?: string }>;
 };
 
 export type OpenworkInboxItem = {
@@ -1623,6 +1649,33 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/stat?path=${encodeURIComponent(path)}`,
         { token, hostToken },
+      ),
+
+    listWorkspaceDirectory: (workspaceId: string, path: string) =>
+      requestJson<OpenworkWorkspaceDirList>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/dir?path=${encodeURIComponent(path || ".")}`,
+        { token, hostToken },
+      ),
+
+    organizeWorkspaceFiles: (
+      workspaceId: string,
+      rules: Array<{ pattern: string; targetDir: string }>,
+    ) =>
+      requestJson<OpenworkWorkspaceOrganizeResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/organize`,
+        { token, hostToken, method: "POST", body: { rules } },
+      ),
+
+    batchRenameWorkspaceFiles: (
+      workspaceId: string,
+      renames: Array<{ path: string; newName: string }>,
+    ) =>
+      requestJson<OpenworkWorkspaceBatchRenameResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/batch-rename`,
+        { token, hostToken, method: "POST", body: { renames } },
       ),
 
     writeWorkspaceFile: (

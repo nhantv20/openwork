@@ -59,6 +59,9 @@ const EMPTY_SESSION: SessionPanelState = {
   activeTabId: null,
 };
 
+export const EMPTY_PANEL_TABS: readonly PanelTab[] = Object.freeze([]);
+export const EMPTY_TRANSCRIPT_TARGETS: readonly OpenTarget[] = Object.freeze([]) as readonly OpenTarget[];
+
 function getWritableSession(state: PanelTabStore, sessionId: string): SessionPanelState {
   return state.sessions[sessionId] ?? EMPTY_SESSION;
 }
@@ -409,5 +412,26 @@ export function useActivePanelTab(sessionId: string): PanelTab | null {
     const session = state.sessions[sessionId] ?? EMPTY_SESSION;
 
     return session.tabs.find((tab) => tab.id === session.activeTabId) ?? session.tabs[0] ?? null;
+  });
+}
+
+export function useSessionPanelTabs(sessionId: string | null | undefined): readonly PanelTab[] {
+  return usePanelTabStore((state) => {
+    if (!sessionId) return EMPTY_PANEL_TABS;
+    return state.sessions[sessionId]?.tabs ?? EMPTY_PANEL_TABS;
+  });
+}
+
+export function useSessionTranscriptTargets(sessionId: string | null | undefined): readonly OpenTarget[] {
+  return usePanelTabStore((state) => {
+    if (!sessionId) return EMPTY_TRANSCRIPT_TARGETS;
+    return state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS;
+  });
+}
+
+export function useSessionActiveTabId(sessionId: string | null | undefined): string | null {
+  return usePanelTabStore((state) => {
+    if (!sessionId) return null;
+    return state.sessions[sessionId]?.activeTabId ?? null;
   });
 }

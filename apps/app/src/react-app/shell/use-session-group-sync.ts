@@ -70,6 +70,9 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
   const endpointForWorkspaceRef = useRef(endpointForWorkspace);
   const eventCursorByWorkspaceRef = useRef<Record<string, number | null>>({});
   const pollInFlightRef = useRef(false);
+  const consecutiveFailureCountByWorkspaceRef = useRef<Record<string, number>>({});
+  const lastFailureAtByWorkspaceRef = useRef<Record<string, number>>({});
+  const initialSyncLogKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -150,6 +153,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
 
     for (const workspace of workspaces) {
       void syncWorkspace(workspace, true).catch((error) => {
+        // Log at most once per (workspace, error message) so a dead local
+        // server doesn't fill the console on every effect re-run / poll.
+        const message = error instanceof Error ? error.message : String(error);
+        const logKey = `${workspace.id}:${message}`;
+        if (initialSyncLogKeysRef.current.has(logKey)) return;
+        initialSyncLogKeysRef.current.add(logKey);
         console.warn("[session-groups] initial sync failed", error);
       });
     }
@@ -163,12 +172,25 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
           if (!endpoint) continue;
           const key = `${endpoint.baseUrl}:${endpoint.workspaceId}`;
           const currentCursor = eventCursorByWorkspaceRef.current[key];
+          // Track per-workspace consecutive failures so a dead/unreachable
+          // server doesn't get hammered every 3s forever — back off
+          // exponentially up to 60s and reset on the first success.
+          const failureKey = `${key}:failures`;
+          const consecutiveFailures =
+            (consecutiveFailureCountByWorkspaceRef.current[failureKey] ?? 0);
+          if (consecutiveFailures > 0) {
+            const backoffMs = Math.min(60_000, 1_000 * Math.pow(2, consecutiveFailures - 1));
+            const lastFailureAt = lastFailureAtByWorkspaceRef.current[failureKey] ?? 0;
+            if (Date.now() - lastFailureAt < backoffMs) continue;
+          }
           try {
             const response = await endpoint.client.listSessionGroupEvents(
               endpoint.workspaceId,
               typeof currentCursor === "number" ? { since: currentCursor } : undefined,
             );
             if (cancelled) return;
+            consecutiveFailureCountByWorkspaceRef.current[failureKey] = 0;
+            lastFailureAtByWorkspaceRef.current[failureKey] = 0;
             eventCursorByWorkspaceRef.current[key] =
               typeof response.cursor === "number"
                 ? response.cursor
@@ -177,6 +199,8 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
             if ((response.items ?? []).length === 0) continue;
             await syncWorkspace(workspace, false);
           } catch {
+            consecutiveFailureCountByWorkspaceRef.current[failureKey] = consecutiveFailures + 1;
+            lastFailureAtByWorkspaceRef.current[failureKey] = Date.now();
             // Best effort: normal workspace/session loading still surfaces connection issues.
           }
         }

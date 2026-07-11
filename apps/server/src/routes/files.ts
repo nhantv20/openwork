@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
@@ -78,35 +78,49 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
   return parts.join("/");
 }
 
-export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean {
+export function isBlockedWorkspaceFilePath(relativePath: string): boolean {
   const lowered = relativePath.toLowerCase();
-  return [
-    ".md",
-    ".mdx",
-    ".markdown",
-    ".csv",
-    ".tsv",
-    ".json",
-    ".jsonc",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".xml",
-    ".html",
-    ".htm",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".css",
-    ".scss",
-    ".txt",
-    ".log",
-  ].some((ext) =>
-    lowered.endsWith(ext),
-  );
+  const blocked = [
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".env.test",
+    "id_rsa",
+    "id_rsa.pub",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    "credentials",
+    "credentials.json",
+    ".netrc",
+    ".pgpass",
+    ".htpasswd",
+    ".npmrc",
+    ".pypirc",
+    "id_dsa",
+    "id_ed25519",
+    ".keystore",
+    ".jks",
+  ];
+  if (blocked.some((b) => lowered.endsWith(b) || lowered.includes("/" + b) || lowered === b)) {
+    return true;
+  }
+  const blockedDirs = ["/.git/", "/node_modules/.cache/", "/.ssh/"];
+  return blockedDirs.some((dir) => lowered.includes(dir));
+}
+
+export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean {
+  if (isBlockedWorkspaceFilePath(relativePath)) {
+    return false;
+  }
+  const lowered = relativePath.toLowerCase();
+  const ext = extname(lowered);
+  if (!ext && !lowered.includes(".")) {
+    return lowered.length > 0 && !lowered.endsWith("/");
+  }
+  return true;
 }
 
 function resolveSafeChildPath(root: string, child: string): string {
@@ -567,7 +581,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename=\"${basename(relativePath)}\"`);
+    const asciiFallback = basename(relativePath).replace(/[^\x20-\x7E]/g, "_");
+    const encodedFilename = encodeURIComponent(basename(relativePath));
+    headers.set("Content-Disposition", `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`);
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -657,7 +673,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `attachment; filename="${basename(relativePath)}"`);
+    const asciiFallback = basename(relativePath).replace(/[^\x20-\x7E]/g, "_");
+    const encodedFilename = encodeURIComponent(basename(relativePath));
+    headers.set("Content-Disposition", `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`);
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -1068,6 +1086,46 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     });
   });
 
+  addRoute(routes, "GET", "/workspace/:id/files/dir", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    const isRoot = !requested || requested === "/" || requested === ".";
+    const relativePath = isRoot ? "" : normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const absPath = isRoot ? workspace.path : resolveSafeChildPath(workspace.path, relativePath);
+
+    if (!(await exists(absPath))) {
+      throw new ApiError(404, "dir_not_found", "Directory not found");
+    }
+
+    const info = await stat(absPath);
+    if (!info.isDirectory()) {
+      throw new ApiError(400, "not_a_directory", "Path is not a directory");
+    }
+
+    const entries = await readdir(absPath, { withFileTypes: true });
+    const items = await Promise.all(
+      entries
+        .map(async (entry) => {
+          const entryPath = join(absPath, entry.name);
+          const entryStat = await stat(entryPath);
+          return {
+            name: entry.name,
+            path: relativePath ? `${relativePath}/${entry.name}` : entry.name,
+            kind: entry.isDirectory() ? "dir" : "file",
+            size: entry.isFile() ? entryStat.size : 0,
+            updatedAt: entryStat.mtimeMs,
+          };
+        }),
+    );
+
+    items.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return jsonResponse({ path: relativePath || "/", items });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
@@ -1084,7 +1142,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const headers = new Headers();
     headers.set("Content-Type", contentTypeForPath(relativePath));
     headers.set("Content-Length", String(info.size));
-    headers.set("Content-Disposition", `inline; filename="${basename(relativePath)}"`);
+    const asciiFallback = basename(relativePath).replace(/[^\x20-\x7E]/g, "_");
+    const encodedFilename = encodeURIComponent(basename(relativePath));
+    headers.set("Content-Disposition", `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`);
     const stream = Readable.toWeb(createReadStream(absPath)) as unknown as ReadableStream;
     return new Response(stream, { status: 200, headers });
   });
@@ -1222,5 +1282,86 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     });
 
     return jsonResponse({ ok: true, path: relativePath, bytes, updatedAt: after.mtimeMs, revision });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/files/organize", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+
+    const { rules } = body as { rules?: Array<{ pattern: string; targetDir: string }> };
+    if (!Array.isArray(rules)) {
+      throw new ApiError(400, "invalid_payload", "rules must be an array");
+    }
+
+    const entries = await listWorkspaceCatalogEntries(workspace.path);
+    const results: Array<{ path: string; action: string; destination?: string; error?: string }> = [];
+
+    for (const entry of entries) {
+      if (entry.kind !== "file") continue;
+
+      for (const rule of rules) {
+        try {
+          const regex = new RegExp(rule.pattern);
+          if (regex.test(entry.path)) {
+            const targetPath = `${rule.targetDir}/${entry.path.substring(entry.path.lastIndexOf("/") + 1)}`;
+            const absSource = resolve(workspace.path, entry.path);
+            const absTarget = resolveSafeChildPath(workspace.path, targetPath);
+
+            if (absSource === absTarget) continue;
+
+            await ensureDir(dirname(absTarget));
+            await rename(absSource, absTarget);
+
+            results.push({ path: entry.path, action: "moved", destination: targetPath });
+            break;
+          }
+        } catch {
+          results.push({ path: entry.path, action: "skipped", error: "Invalid rule pattern" });
+        }
+      }
+    }
+
+    return jsonResponse({ ok: true, processed: entries.filter((e) => e.kind === "file").length, results });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/files/batch-rename", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+
+    const { renames } = body as {
+      renames?: Array<{ path: string; newName: string }>;
+    };
+    if (!Array.isArray(renames)) {
+      throw new ApiError(400, "invalid_payload", "renames must be an array");
+    }
+
+    const results: Array<{ path: string; action: string; newPath?: string; error?: string }> = [];
+
+    for (const { path: oldPath, newName } of renames) {
+      try {
+        const relativePath = normalizeWorkspaceRelativePath(oldPath, { allowSubdirs: true });
+        const absSource = resolveSafeChildPath(workspace.path, relativePath);
+
+        if (!(await exists(absSource))) {
+          results.push({ path: oldPath, action: "error", error: "File not found" });
+          continue;
+        }
+
+        const dir = dirname(absSource);
+        const newPath = join(dir, newName);
+        await rename(absSource, newPath);
+
+        const newRelativePath = relative(workspace.path, newPath).replace(/\\/g, "/");
+        results.push({ path: oldPath, action: "renamed", newPath: newRelativePath });
+      } catch (err) {
+        results.push({ path: oldPath, action: "error", error: err instanceof Error ? err.message : "Unknown error" });
+      }
+    }
+
+    return jsonResponse({ ok: true, processed: renames.length, results });
   });
 }

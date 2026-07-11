@@ -7,6 +7,7 @@ import {
   resolveOpenworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
   selectStickyOpenworkPortWorkspace,
+  snapshotEngineState,
 } from "./runtime.mjs";
 
 describe("prioritizeWorkspacePaths", () => {
@@ -93,5 +94,86 @@ describe("resolveOpenworkServerConfigPath", () => {
       resolveOpenworkServerConfigPath({ XDG_CONFIG_HOME: "/tmp/xdg" }),
       "/tmp/xdg/openwork/server.json",
     );
+  });
+});
+
+describe("snapshotEngineState", () => {
+  const baseFields = {
+    runtime: "direct",
+    projectDir: "/Users/trannhan/project/openwork",
+    hostname: "127.0.0.1",
+    port: 49974,
+    opencodeUsername: "user",
+    opencodePassword: "pass",
+    opencodeBinPath: "/usr/bin/opencode",
+    opencodeBinSource: "bundled",
+    lastStdout: null,
+    lastStderr: null,
+    execution: null,
+  };
+
+  it("reports running when opencode is managed by the in-process server and baseUrl is known", () => {
+    const snapshot = snapshotEngineState({
+      ...baseFields,
+      child: null,
+      childExited: false,
+      managedByServer: true,
+      baseUrl: "http://127.0.0.1:49974",
+    });
+    assert.equal(snapshot.running, true);
+    assert.equal(snapshot.managedByServer, true);
+    assert.equal(snapshot.baseUrl, "http://127.0.0.1:49974");
+    assert.equal(snapshot.pid, null);
+  });
+
+  it("reports not running when managed by server but baseUrl is missing", () => {
+    const snapshot = snapshotEngineState({
+      ...baseFields,
+      child: null,
+      childExited: false,
+      managedByServer: true,
+      baseUrl: null,
+    });
+    assert.equal(snapshot.running, false);
+    assert.equal(snapshot.managedByServer, true);
+  });
+
+  it("falls back to child liveness when not managed by server", () => {
+    const liveChild = { pid: 90945, exitCode: null, killed: false };
+    const snapshot = snapshotEngineState({
+      ...baseFields,
+      child: liveChild,
+      childExited: false,
+      managedByServer: false,
+      baseUrl: "http://127.0.0.1:49974",
+    });
+    assert.equal(snapshot.running, true);
+    assert.equal(snapshot.pid, 90945);
+    assert.equal(snapshot.managedByServer, false);
+  });
+
+  it("reports not running when owned child has exited", () => {
+    const deadChild = { pid: 90945, exitCode: 0, killed: false };
+    const snapshot = snapshotEngineState({
+      ...baseFields,
+      child: deadChild,
+      childExited: false,
+      managedByServer: false,
+      baseUrl: "http://127.0.0.1:49974",
+    });
+    assert.equal(snapshot.running, false);
+    assert.equal(snapshot.pid, 90945);
+  });
+
+  it("reports not running when childExited has flipped even if child object survives", () => {
+    const snapshot = snapshotEngineState({
+      ...baseFields,
+      child: { pid: 90945, exitCode: null, killed: false },
+      childExited: true,
+      managedByServer: false,
+      baseUrl: "http://127.0.0.1:49974",
+    });
+    assert.equal(snapshot.running, false);
+    assert.equal(snapshot.pid, null);
   });
 });

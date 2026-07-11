@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 
 type OpenTargetKind = "url" | "file";
-export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "document" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "external";
 
 export interface TextData {
   kind: "text";
@@ -34,7 +34,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "image", "pdf", "html"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "document", "image", "video", "audio", "pdf", "html", "text"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const ASSISTANT_ARTIFACT_MENTION_PATTERN = /\b(?:artifact|created|deck|deliverable|exported|file|generated|opened|presentation|saved|slides?|updated|wrote)\b/i;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
@@ -79,16 +79,24 @@ function extname(value: string) {
   return index >= 0 ? name.slice(index) : "";
 }
 
-function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
+export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
   const ext = extname(value);
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
   if ([".ppt", ".pptx", ".pptm", ".pot", ".potx", ".odp", ".key", ".sxi"].includes(ext)) return "slides";
+  if ([".doc", ".docx", ".odt", ".rtf", ".pages"].includes(ext)) return "document";
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].includes(ext)) return "image";
+  if ([".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".ogv", ".mpeg", ".mpg", ".3gp"].includes(ext)) return "video";
+  if ([".mp3", ".wav", ".flac", ".aac", ".ogg", ".oga", ".m4a", ".wma", ".opus", ".aiff", ".aif"].includes(ext)) return "audio";
   if (ext === ".pdf") return "pdf";
   if ([".html", ".htm"].includes(ext)) return "html";
-  if ([".txt", ".log", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml", ".ts", ".tsx", ".js", ".jsx", ".css", ".scss"].includes(ext)) return "text";
+  if ([".txt", ".log", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml", ".ts", ".tsx", ".js", ".jsx", ".css", ".scss",
+        ".py", ".rb", ".go", ".rs", ".java", ".kt", ".swift", ".php", ".c", ".cpp", ".h", ".cs", ".sql",
+        ".sh", ".bash", ".zsh", ".vue", ".svelte", ".astro", ".mdx", ".graphql", ".gql", ".prisma",
+        ".toml", ".ini", ".env", ".conf", ".lua", ".r", ".jl", ".dart", ".ex", ".exs", ".elm",
+        ".clj", ".cljs", ".cljr", ".scala", ".hs", ".purs", ".ml", ".fs", ".fsi", ".fsx", ".vb",
+        ".asm", ".pl", ".pm", ".tcl", ".rkt", ".scm", ".diff", ".patch"].includes(ext)) return "text";
   return "external";
 }
 

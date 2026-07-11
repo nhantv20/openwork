@@ -78,6 +78,7 @@ async function parseSkillEntry(
     path: skillPath,
     scope,
     trigger: trigger.trim() || undefined,
+    category: typeof data.category === "string" ? data.category : undefined,
   };
 }
 

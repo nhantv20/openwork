@@ -489,6 +489,9 @@ export type DesktopCommandMap = {
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
 
+  // OfficeCLI
+  officecli: { args: [action: string, ...args: string[]]; result: unknown };
+
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };
   __revealItemInDir: { args: [target: string]; result: unknown };

@@ -8,6 +8,7 @@
  * collapsed state. Components import it directly with selectors, avoiding
  * context/prop drilling.
  */
+import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -327,8 +328,12 @@ const EMPTY_ORDER: string[] = [];
 export function usePinnedSessionIds(): Set<string> {
   const ids = useSessionManagementStore((s) => s.pinnedIds);
   // Derive a Set; reference-stable when the array is the same object.
-  // Consumers only need membership checks so Set is ideal.
-  return ids.length ? new Set(ids) : EMPTY_PINNED;
+  // Consumers only need membership checks so Set is ideal. The Set must be
+  // memoized — `useSyncExternalStore` (which Zustand uses internally) requires
+  // a stable snapshot reference across identical renders, otherwise React
+  // enters an infinite re-render loop and throws "Maximum update depth
+  // exceeded" the moment any session is pinned.
+  return useMemo(() => (ids.length ? new Set(ids) : EMPTY_PINNED), [ids]);
 }
 
 export function useSessionOrder(workspaceId: string): string[] {

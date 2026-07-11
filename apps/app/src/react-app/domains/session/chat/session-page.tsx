@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { Columns2, FileText, Folder, FolderOpen, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -58,6 +58,8 @@ import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTa
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
+import { FileExplorerPanel } from "../panel/file-explorer-panel";
+import { PreviewWithFileTree } from "../artifacts/preview-with-file-tree";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -318,6 +320,7 @@ export function SessionPage(props: SessionPageProps) {
   const panelRailActive = activeSidePanel === "panel";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
+  const filesRailActive = activeSidePanel === "files" || activeSidePanel === "preview";
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
     [],
@@ -568,6 +571,12 @@ export function SessionPage(props: SessionPageProps) {
   }, [toggleCurrentSidePanel]);
   const openVoiceRailPane = useCallback(() => {
     toggleCurrentSidePanel("voice");
+  }, [toggleCurrentSidePanel]);
+  const openFilesRailPane = useCallback(() => {
+    toggleCurrentSidePanel("files");
+  }, [toggleCurrentSidePanel]);
+  const openPreviewRailPane = useCallback(() => {
+    toggleCurrentSidePanel("preview");
   }, [toggleCurrentSidePanel]);
   const removeAccessibleTarget = useCallback((target: OpenTarget) => {
     const nextHiddenIds = new Set(hiddenAccessibleTargetIds);
@@ -1266,6 +1275,45 @@ export function SessionPage(props: SessionPageProps) {
                       sessionId={props.selectedSessionId}
                       onClose={closeRightPane}
                     />
+                  ) : activeSidePanel === "files" ? (
+                    <FileExplorerPanel
+                      client={props.openworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      onFileSelect={(path, preview) => {
+                        if (!props.selectedSessionId) return;
+                        const fileId = `file:${path.toLowerCase()}`;
+                        const name = path.includes("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
+                        const target: OpenTarget = {
+                          id: fileId,
+                          kind: "file",
+                          value: path,
+                          name,
+                          preview,
+                          confidence: 100,
+                          reason: "file_explorer",
+                          exists: true,
+                        };
+                        usePanelTabStore.getState().syncTranscriptArtifacts(props.selectedSessionId, [target]);
+                        openTab(props.selectedSessionId, {
+                          id: fileId,
+                          type: "artifact",
+                          label: name,
+                          preview,
+                        });
+                        setCurrentSidePanel("preview");
+                      }}
+                      onClose={closeRightPane}
+                    />
+                  ) : activeSidePanel === "preview" && props.selectedSessionId ? (
+                    <PreviewWithFileTree
+                      sessionId={props.selectedSessionId}
+                      client={props.openworkServerClient!}
+                      workspaceId={props.runtimeWorkspaceId!}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                      onClose={closeRightPane}
+                    />
                   ) : activeSidePanel === "panel" && props.selectedSessionId ? (
                     <SidePanel
                       sessionId={props.selectedSessionId}
@@ -1313,6 +1361,20 @@ export function SessionPage(props: SessionPageProps) {
                 <Mic2 size={17} />
               </Button>
             ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                filesRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+              )}
+              onClick={openFilesRailPane}
+              title="Files"
+              aria-label="Files"
+              aria-pressed={filesRailActive}
+            >
+              <FolderOpen size={17} />
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"

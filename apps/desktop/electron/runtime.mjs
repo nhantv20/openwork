@@ -90,6 +90,7 @@ function createEngineState() {
   return {
     child: null,
     childExited: true,
+    managedByServer: false,
     runtime: DIRECT_RUNTIME,
     projectDir: null,
     hostname: null,
@@ -105,10 +106,13 @@ function createEngineState() {
   };
 }
 
-function snapshotEngineState(state) {
+export function snapshotEngineState(state) {
   const child = state.childExited ? null : state.child;
+  const ownsChild = Boolean(child && child.exitCode === null && !child.killed);
+  const running = state.managedByServer ? Boolean(state.baseUrl) : ownsChild;
   return {
-    running: Boolean(child && child.exitCode === null && !child.killed),
+    running,
+    managedByServer: state.managedByServer,
     runtime: state.runtime,
     baseUrl: state.baseUrl,
     projectDir: state.projectDir,
@@ -118,7 +122,7 @@ function snapshotEngineState(state) {
     opencodePassword: state.opencodePassword,
     opencodeBinPath: state.opencodeBinPath,
     opencodeBinSource: state.opencodeBinSource,
-    pid: child?.pid ?? null,
+    pid: state.managedByServer ? null : child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
     execution: state.execution,
@@ -1189,6 +1193,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.opencodeUsername = opencode.username ?? null;
           engineState.opencodePassword = opencode.password ?? null;
           engineState.execution = handle.managedOpencodeExecution ?? null;
+          engineState.managedByServer = true;
           engineState.child = null;
           engineState.childExited = false;
         }

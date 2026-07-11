@@ -1417,6 +1417,54 @@ const desktopCommandHandlers = {
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
   },
+  "officecli": async (_event, ...args) => {
+    const action = String(args[0] ?? "");
+    if (action === "convert") {
+      const base64 = String(args[1] ?? "");
+      const ext = String(args[2] ?? "pptx");
+      const mode = String(args[3] ?? "html");
+      const tmpFile = path.join(os.tmpdir(), `openwork-preview-${Date.now()}.${ext}`);
+      try {
+        await writeFile(tmpFile, Buffer.from(base64, "base64"));
+        const result = await new Promise((resolve, reject) => {
+          const proc = spawn("officecli", ["view", tmpFile, mode, "--json"], { stdio: ["ignore", "pipe", "pipe"] });
+          let stdout = "";
+          let stderr = "";
+          proc.stdout.on("data", (d) => { stdout += d; });
+          proc.stderr.on("data", (d) => { stderr += d; });
+          proc.on("close", (code) => {
+            if (code === 0) {
+              try { resolve(JSON.parse(stdout)); }
+              catch { resolve({ raw: stdout }); }
+            } else {
+              reject(new Error(stderr.trim() || `officecli exited with code ${code}`));
+            }
+          });
+          proc.on("error", reject);
+        });
+        return result;
+      } finally {
+        rm(tmpFile).catch(() => {});
+      }
+    }
+    const cliArgs = args.slice(1).map(String);
+    return new Promise((resolve, reject) => {
+      const proc = spawn("officecli", [action, ...cliArgs, "--json"], { stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d) => { stdout += d; });
+      proc.stderr.on("data", (d) => { stderr += d; });
+      proc.on("close", (code) => {
+        if (code === 0) {
+          try { resolve(JSON.parse(stdout)); }
+          catch { resolve({ raw: stdout }); }
+        } else {
+          reject(new Error(stderr.trim() || `officecli exited with code ${code}`));
+        }
+      });
+      proc.on("error", reject);
+    });
+  },
 };
 
 async function handleDesktopInvoke(event, command, ...args) {

@@ -1874,6 +1874,7 @@ export function createExtensionsStore(options: {
               description: entry.description,
               path: entry.path,
               trigger: entry.trigger,
+              category: entry.category,
             }))
           : [];
         mutateState((current) => ({

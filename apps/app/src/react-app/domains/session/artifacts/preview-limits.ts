@@ -1,0 +1,2 @@
+/** Maximum size (in bytes) for inline text/code preview. Above this we render an inline-preview error and rely on the panel's download / open-externally buttons instead of running the highlighter or markdown renderer over the full content. */
+export const MAX_TEXT_PREVIEW_BYTES = 5 * 1024 * 1024;

@@ -49,6 +49,22 @@ export function isPdfPreviewSupported(extension: string) {
   return ["pdf"].includes(extension);
 }
 
+export function isSlidesPreviewSupported(extension: string) {
+  return ["ppt", "pptx", "pptm", "pot", "potx", "odp", "key", "sxi"].includes(extension);
+}
+
+export function isDocumentPreviewSupported(extension: string) {
+  return ["doc", "docx", "odt", "rtf", "pages"].includes(extension);
+}
+
+export function isVideoPreviewSupported(extension: string) {
+  return ["mp4", "mov", "avi", "mkv", "webm", "wmv", "flv", "m4v", "ogv", "mpeg", "mpg", "3gp"].includes(extension);
+}
+
+export function isAudioPreviewSupported(extension: string) {
+  return ["mp3", "wav", "flac", "aac", "ogg", "oga", "m4a", "wma", "opus", "aiff", "aif"].includes(extension);
+}
+
 export function isHtmlPreviewSupported(extension: string) {
   return ["html", "htm"].includes(extension);
 }
@@ -58,7 +74,7 @@ export function isTextPreviewSupported(extension: string) {
 }
 
 export function isPreviewSupported(extension: string) {
-  return isMarkdownPreviewSupported(extension) || isSheetPreviewSupported(extension) || isImagePreviewSupported(extension) || isPdfPreviewSupported(extension) || isHtmlPreviewSupported(extension) || isTextPreviewSupported(extension);
+  return isMarkdownPreviewSupported(extension) || isSheetPreviewSupported(extension) || isSlidesPreviewSupported(extension) || isDocumentPreviewSupported(extension) || isImagePreviewSupported(extension) || isVideoPreviewSupported(extension) || isAudioPreviewSupported(extension) || isPdfPreviewSupported(extension) || isHtmlPreviewSupported(extension) || isTextPreviewSupported(extension);
 }
 
 export function getArtifactType(filename: string): ArtifactType {
@@ -161,7 +177,10 @@ function artifactTypeToPreview(type: ArtifactType): OpenTargetPreview {
   if (type === "markdown") return "markdown";
   if (type === "sheet") return "sheet";
   if (type === "slides") return "slides";
+  if (type === "document") return "document";
   if (type === "image") return "image";
+  if (type === "video") return "video";
+  if (type === "audio") return "audio";
   if (type === "pdf") return "pdf";
   if (type === "html") return "html";
   if (type === "text") return "text";
