@@ -17,6 +17,7 @@ import { AudioPreview, CodePreview, DiffPreview, HTMLPreview, ImagePreview, Mark
 import { DiffViewer } from "./viewers/diff-viewer";
 import { DocumentViewer } from "./viewers/document-viewer";
 import { SlidesViewer } from "./viewers/slides-viewer";
+import { HistoryStatusBadge } from "./history-status-badge";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -346,6 +347,13 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             <span className="shrink-0 text-xs text-muted-foreground">
               {target.exists === false ? "missing" : target.size !== undefined ? `${formatFileSize(target.size)}` : ""}
             </span>
+            {target.kind === "file" ? (
+              <HistoryStatusBadge
+                client={client}
+                workspaceId={workspaceId}
+                filePath={target.value}
+              />
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
           {isTextContent(target) && data?.kind === "text" ? (

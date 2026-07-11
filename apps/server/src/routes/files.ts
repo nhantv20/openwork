@@ -5,6 +5,8 @@ import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { FileSessionStore } from "../file-sessions.js";
+import { SnapshotStore } from "../file-snapshots.js";
+import { fireMaybeSnapshot } from "../snapshot-middleware.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -514,6 +516,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     scopeRank,
   } = options;
   const fileSessions = new FileSessionStore();
+  const snapshotStore = new SnapshotStore(config);
 
   const serializeFileSession = (session: {
     id: string;
@@ -912,6 +915,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
         await ensureDir(dirname(entry.absPath));
         const tmp = `${entry.absPath}.tmp-${shortId()}`;
+        // Phase 6: snapshot the pre-write content (best-effort, async).
+        fireMaybeSnapshot(config, snapshotStore, {
+          workspaceId: workspace.id,
+          workspaceRoot: workspace.path,
+          filePath: entry.path,
+          revision: currentRevision,
+        });
         await writeFile(tmp, entry.bytes);
         await rename(tmp, entry.absPath);
         const after = await stat(entry.absPath);
@@ -1193,6 +1203,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
+    // Phase 6: snapshot the pre-write content (best-effort, async).
+    fireMaybeSnapshot(config, snapshotStore, {
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      filePath: relativePath,
+      revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
+    });
     await writeFile(tmp, bytes);
     await rename(tmp, absPath);
     const after = await stat(absPath);
@@ -1260,6 +1277,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     await ensureDir(dirname(absPath));
     const tmp = `${absPath}.tmp-${shortId()}`;
+    // Phase 6: snapshot the pre-write content (best-effort, async).
+    fireMaybeSnapshot(config, snapshotStore, {
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.path,
+      filePath: relativePath,
+      revision: beforeUpdatedAt !== null ? String(beforeUpdatedAt) : null,
+    });
     await writeFile(tmp, content, "utf8");
     await rename(tmp, absPath);
     const after = await stat(absPath);
@@ -1363,5 +1387,16 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
 
     return jsonResponse({ ok: true, processed: renames.length, results });
+  });
+
+  // Phase 6, slice 6.2 — latest snapshot for one file. Powers the
+  // status badge in `artifact-panel`. Read-only, no auth beyond client.
+  // Lives in `routes/files.ts` for now; slice 6.3 will move all
+  // `/history/*` routes into a new `routes/history.ts` module.
+  addRoute(routes, "GET", "/workspace/:id/files/:path/history/latest", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const relativePath = normalizeWorkspaceRelativePath(ctx.params.path, { allowSubdirs: true });
+    const snapshot = await snapshotStore.findLatest(workspace.id, relativePath);
+    return jsonResponse({ snapshot });
   });
 }
