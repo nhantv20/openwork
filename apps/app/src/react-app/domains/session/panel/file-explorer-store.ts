@@ -171,13 +171,21 @@ export const useFileExplorerStore = create<FileExplorerStore>()(
 );
 
 /**
- * React hook returning a memoised Set view of the expanded paths for a
- * workspace. Use this in render code (cheaper to re-render only when the
- * underlying array changes); use `useFileExplorerStore.getState()` directly
- * for one-off reads inside event handlers.
+ * React hook returning the expanded paths and selected path for a workspace.
+ *
+ * Returns the **array** of expanded paths (not a Set) so that callers can
+ * safely put it into dependency arrays. The previous version returned a
+ * freshly-constructed Set on every render, which caused an infinite render
+ * loop in <FileExplorerPanel />'s tree-rebuild effect (each render produced
+ * a new Set reference, the effect saw a "changed" dep, called setState, which
+ * triggered another render, …).
+ *
+ * For O(1) membership checks, use the bundled `has` helper. For Set-style
+ * code (e.g. `for ... of`, set arithmetic), wrap the array in `useMemo` at
+ * the call site.
  */
 export function useWorkspaceExpandedPaths(workspaceId: string | null | undefined): {
-  expanded: Set<string>;
+  expanded: readonly string[];
   selectedPath: string | null;
   has: (path: string) => boolean;
 } {
@@ -189,12 +197,8 @@ export function useWorkspaceExpandedPaths(workspaceId: string | null | undefined
     if (!workspaceId) return null;
     return state.byWorkspace[workspaceId]?.selectedPath ?? null;
   });
-  // Re-create the Set only when the underlying array changes.
-  // `useMemo` here would be fine but a small inline `useMemo` keeps the hook
-  // surface tight.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return {
-    expanded: new Set(expanded),
+    expanded,
     selectedPath,
     has: (path: string) => expanded.includes(path),
   };

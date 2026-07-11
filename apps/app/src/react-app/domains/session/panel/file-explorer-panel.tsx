@@ -390,7 +390,11 @@ function FileNode({
 }
 
 export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionId, onFileSelect, onClose }: FileExplorerPanelProps) {
-  const { expanded: expandedPaths, selectedPath } = useWorkspaceExpandedPaths(workspaceId);
+  const { expanded: expandedPathList, selectedPath } = useWorkspaceExpandedPaths(workspaceId);
+  // Memoised Set view, keyed off the array identity. Using a freshly-built
+  // Set inline would change its reference every render and break
+  // `useEffect([expandedPaths])` dep arrays (causing an infinite loop).
+  const expandedPaths = useMemo(() => new Set(expandedPathList), [expandedPathList]);
   const toggleExpanded = useFileExplorerStore((state) => state.toggleExpanded);
   const expandMany = useFileExplorerStore((state) => state.expand);
   const collapseOne = useFileExplorerStore((state) => state.collapse);
