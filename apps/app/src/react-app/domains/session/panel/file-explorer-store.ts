@@ -31,6 +31,16 @@ type FileExplorerActions = {
   expand: (workspaceId: string, paths: string[]) => void;
   collapse: (workspaceId: string, path: string) => void;
   setSelected: (workspaceId: string, path: string | null) => void;
+  /**
+   * Expand every directory that contains the given file path so the file
+   * becomes visible in the tree. Useful when the user opens a file from
+   * somewhere other than the tree (e.g. a chat mention) and the tree is
+   * currently collapsed.
+   *
+   * Returns the list of directory paths that were expanded, so callers can
+   * kick off a lazy-load for each if they need to render their children.
+   */
+  expandAncestors: (workspaceId: string, filePath: string) => string[];
   clearWorkspace: (workspaceId: string) => void;
 };
 
@@ -105,6 +115,45 @@ export const useFileExplorerStore = create<FileExplorerStore>()(
             },
           };
         }),
+
+      expandAncestors: (workspaceId, filePath) => {
+        // Compute the chain of ancestor directories (root-first). The file
+        // path is relative to the workspace root; "src/foo/bar.ts" expands
+        // to ["src", "src/foo"].
+        const segments = filePath.split("/").filter(Boolean);
+        if (segments.length <= 1) return [];
+        const ancestors: string[] = [];
+        for (let i = 0; i < segments.length - 1; i++) {
+          ancestors.push(segments.slice(0, i + 1).join("/"));
+        }
+        // Only expand ancestors that aren't already expanded. Persist any new
+        // ones, then return the full list so the caller can fetch their
+        // children lazily.
+        const result: string[] = [];
+        set((state) => {
+          const ws = state.byWorkspace[workspaceId] ?? EMPTY_WORKSPACE;
+          const expanded = new Set(ws.expandedPaths);
+          const newlyExpanded: string[] = [];
+          for (const dir of ancestors) {
+            if (!expanded.has(dir)) {
+              expanded.add(dir);
+              newlyExpanded.push(dir);
+            }
+          }
+          if (newlyExpanded.length === 0) {
+            result.push(...ancestors);
+            return state;
+          }
+          result.push(...ancestors);
+          return {
+            byWorkspace: {
+              ...state.byWorkspace,
+              [workspaceId]: { ...ws, expandedPaths: [...expanded] },
+            },
+          };
+        });
+        return result;
+      },
 
       clearWorkspace: (workspaceId) =>
         set((state) => {

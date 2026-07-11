@@ -242,6 +242,7 @@ export function RightPanel({
               client={client}
               workspaceId={workspaceId}
               workspaceRoot={workspaceRoot}
+              sessionId={sessionId}
               onFileSelect={handleFileSelect}
               onClose={onClose}
             />

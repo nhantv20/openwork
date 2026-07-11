@@ -102,6 +102,13 @@ interface FileExplorerPanelProps {
   client: OpenworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  /**
+   * When provided, the file tree highlights and auto-expands the
+   * ancestors of the currently open artifact tab from this session.
+   * Lets the user see "where this file lives" even when they open it
+   * from a chat mention or the tab strip directly.
+   */
+  sessionId?: string;
   onFileSelect?: (path: string, preview: OpenTargetPreview) => void;
   onClose?: () => void;
 }
@@ -227,6 +234,27 @@ function pathMatchesQuery(filePath: string, query: string): boolean {
   const normalizedPath = normalizeForSearch(filePath);
   const words = normalizeForSearch(trimmed).split(/\s+/).filter(Boolean);
   return words.every((word) => normalizedPath.includes(word));
+}
+
+/**
+ * Find a file in the tree whose lowercased path matches `lowerCasedPath`.
+ * Returns the path with the workspace's original casing, or `null` if not
+ * found. The file IDs in panel-tab-store are derived from a lowercased
+ * path, so we need this lookup to display the highlight in the right case.
+ */
+function findMatchingTreePath(nodes: TreeNode[], lowerCasedPath: string): string | null {
+  const target = lowerCasedPath.toLowerCase();
+  const visit = (xs: TreeNode[]): string | null => {
+    for (const node of xs) {
+      if (node.path.toLowerCase() === target) return node.path;
+      if (node.kind === "directory" && node.children.length > 0) {
+        const found = visit(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return visit(nodes);
 }
 
 function FileNode({
@@ -361,12 +389,13 @@ function FileNode({
   );
 }
 
-export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSelect, onClose }: FileExplorerPanelProps) {
+export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionId, onFileSelect, onClose }: FileExplorerPanelProps) {
   const { expanded: expandedPaths, selectedPath } = useWorkspaceExpandedPaths(workspaceId);
   const toggleExpanded = useFileExplorerStore((state) => state.toggleExpanded);
   const expandMany = useFileExplorerStore((state) => state.expand);
   const collapseOne = useFileExplorerStore((state) => state.collapse);
   const setSelectedPath = useFileExplorerStore((state) => state.setSelected);
+  const expandAncestors = useFileExplorerStore((state) => state.expandAncestors);
   const parentRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -453,6 +482,40 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, tree, workspaceId]);
 
+  // Sync the file tree selection with the right-panel's currently open
+  // artifact tab. When the user opens a file from a chat mention (or any
+  // other non-tree entry point), the tree needs to know about it so the
+  // file is highlighted and its ancestors are expanded. We import the panel
+  // tab store lazily to avoid a hard dependency from the tree component.
+  useEffect(() => {
+    if (!sessionId || !workspaceId) return;
+    let cancelled = false;
+    void (async () => {
+      const { usePanelTabStore } = await import("./panel-tab-store");
+      if (cancelled) return;
+      const { sessions } = usePanelTabStore.getState();
+      const activeTabId = sessions[sessionId]?.activeTabId;
+      if (!activeTabId || !activeTabId.startsWith("file:")) return;
+      const filePath = activeTabId.slice("file:".length);
+      // selectedPath is case-insensitive in the panel store; normalise so
+      // the tree (which uses the workspace's actual casing) matches.
+      const treePath = filePath.toLowerCase() === filePath
+        ? filePath
+        : findMatchingTreePath(tree, filePath);
+      if (!treePath) return;
+      if (cancelled) return;
+      setSelectedPath(workspaceId, treePath);
+      const ancestors = expandAncestors(workspaceId, treePath);
+      for (const dir of ancestors) {
+        void loadDirChildren(dir, expandedPaths);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, workspaceId]);
+
   const loadDirChildren = useCallback(
     async (path: string, expanded: Set<string>) => {
       if (!client || !workspaceId) return;
@@ -516,10 +579,18 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, onFileSe
       const preview = classifyOpenTarget(path, "file");
       if (workspaceId) {
         setSelectedPath(workspaceId, path);
+        // Auto-expand every ancestor directory so the selected file is
+        // actually visible in the tree. This matters when the user clicks
+        // a file via a chat mention or other external entry point, and the
+        // tree happens to be collapsed above it.
+        const ancestors = expandAncestors(workspaceId, path);
+        for (const dir of ancestors) {
+          void loadDirChildren(dir, expandedPaths);
+        }
       }
       onFileSelect?.(path, preview);
     },
-    [onFileSelect, workspaceId, setSelectedPath],
+    [onFileSelect, workspaceId, setSelectedPath, expandAncestors, loadDirChildren, expandedPaths],
   );
 
   const absolutePath = useCallback(
