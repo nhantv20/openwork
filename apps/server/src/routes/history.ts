@@ -16,7 +16,8 @@
  * registered before #4-#5 (which use `:snapshotId`).
  */
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { PayloadTooLargeError, unifiedDiff } from "../diff.js";
 import { ApiError } from "../errors.js";
@@ -41,6 +42,125 @@ export interface RegisterHistoryRoutesOptions {
 
 const MAX_DIFF_INPUT_BYTES = 1_000_000;
 
+// ---------------------------------------------------------------------------
+// Changes DB (slice 6.5b)
+// ---------------------------------------------------------------------------
+// Workspace-wide "all changes" summary: one row per file_path that has at
+// least one snapshot, grouped + sorted by latest snapshot. Implemented as a
+// thin DB accessor over runtime.sqlite so the GROUP BY + HAVING runs in the
+// SQL engine rather than in JS.
+
+type ChangesRow = { filePath: string; latestAt: number; count: number; trigger: string };
+
+type ChangesDb = {
+  changes: (workspaceId: string, limit: number) => ChangesRow[];
+  changesSince: (workspaceId: string, before: number, limit: number) => ChangesRow[];
+};
+
+function changesDbPath(config: ServerConfig): string {
+  const override = process.env.OPENWORK_RUNTIME_DB?.trim();
+  if (override) return resolve(override);
+  const configPath = config.configPath?.trim();
+  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "openwork");
+  return join(configDir, "runtime.sqlite");
+}
+
+const changesDbByPath = new Map<string, Promise<ChangesDb>>();
+
+async function getChangesDb(config: ServerConfig): Promise<ChangesDb> {
+  const path = changesDbPath(config);
+  const existing = changesDbByPath.get(path);
+  if (existing) return existing;
+  const next = openChangesDb(path);
+  changesDbByPath.set(path, next);
+  return next;
+}
+
+async function openChangesDb(path: string): Promise<ChangesDb> {
+  await ensureDir(dirname(path));
+  if (typeof process.versions.bun === "string") {
+    const { Database } = await import("bun:sqlite");
+    const sqlite = new Database(path, { readonly: true });
+    const changes = (workspaceId: string, limit: number): ChangesRow[] => {
+      const rows = sqlite
+        .query(
+          `SELECT file_path AS filePath,
+                  MAX(created_at) AS latestAt,
+                  COUNT(*) AS count,
+                  (SELECT trigger FROM file_snapshots s2
+                   WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
+                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+           FROM file_snapshots
+           WHERE workspace_id = ?
+           GROUP BY file_path
+           ORDER BY MAX(created_at) DESC
+           LIMIT ?`,
+        )
+        .all(workspaceId, workspaceId, limit) as ChangesRow[];
+      return rows;
+    };
+    const changesSince = (workspaceId: string, before: number, limit: number): ChangesRow[] => {
+      const rows = sqlite
+        .query(
+          `SELECT file_path AS filePath,
+                  MAX(created_at) AS latestAt,
+                  COUNT(*) AS count,
+                  (SELECT trigger FROM file_snapshots s2
+                   WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
+                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+           FROM file_snapshots
+           WHERE workspace_id = ?
+           GROUP BY file_path
+           HAVING MAX(created_at) < ?
+           ORDER BY MAX(created_at) DESC
+           LIMIT ?`,
+        )
+        .all(workspaceId, workspaceId, before, limit) as ChangesRow[];
+      return rows;
+    };
+    return { changes, changesSince };
+  }
+
+  const { DatabaseSync } = await import("node:sqlite");
+  const sqlite = new DatabaseSync(path, { readOnly: true });
+  const changes = (workspaceId: string, limit: number): ChangesRow[] => {
+    return sqlite
+      .prepare(
+        `SELECT file_path AS filePath,
+                MAX(created_at) AS latestAt,
+                COUNT(*) AS count,
+                (SELECT trigger FROM file_snapshots s2
+                 WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
+                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+         FROM file_snapshots
+         WHERE workspace_id = ?
+         GROUP BY file_path
+         ORDER BY MAX(created_at) DESC
+         LIMIT ?`,
+      )
+      .all(workspaceId, workspaceId, limit) as ChangesRow[];
+  };
+  const changesSince = (workspaceId: string, before: number, limit: number): ChangesRow[] => {
+    return sqlite
+      .prepare(
+        `SELECT file_path AS filePath,
+                MAX(created_at) AS latestAt,
+                COUNT(*) AS count,
+                (SELECT trigger FROM file_snapshots s2
+                 WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
+                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+         FROM file_snapshots
+         WHERE workspace_id = ?
+         GROUP BY file_path
+         HAVING MAX(created_at) < ?
+         ORDER BY MAX(created_at) DESC
+         LIMIT ?`,
+      )
+      .all(workspaceId, workspaceId, before, limit) as ChangesRow[];
+  };
+  return { changes, changesSince };
+}
+
 function readPathFromQuery(url: URL): string {
   const value = url.searchParams.get("path");
   if (!value || !value.trim()) {
@@ -60,6 +180,36 @@ function readSnapshotIdFromQuery(url: URL): string {
 export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
   const { routes, config, jsonResponse, readJsonBody, ensureWritable, resolveWorkspace } = options;
   const store = new SnapshotStore(config);
+
+  // Phase 6, slice 6.5b — workspace-wide change summary.
+  // Returns one row per file_path that has at least one snapshot, sorted
+  // by latest snapshot created_at DESC. Cursor pagination pushed to the
+  // HAVING clause so we don't scan all snapshots just to throw away
+  // groups (WBS round-3 review #18).
+  addRoute(routes, "GET", "/workspace/:id/changes", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const limitRaw = ctx.url.searchParams.get("limit");
+    const beforeRaw = ctx.url.searchParams.get("before");
+    const limit = Math.max(1, Math.min(500, limitRaw ? Number(limitRaw) || 100 : 100));
+    const before = beforeRaw ? Number(beforeRaw) : null;
+
+    const db = await getChangesDb(config);
+    let rows: Array<{ filePath: string; latestAt: number; count: number; trigger: string }>;
+    if (before !== null && Number.isFinite(before)) {
+      rows = db.changesSince(workspace.id, before, limit + 1);
+    } else {
+      rows = db.changes(workspace.id, limit + 1);
+    }
+    const hasMore = rows.length > limit;
+    const items = (hasMore ? rows.slice(0, limit) : rows).map((row) => ({
+      filePath: row.filePath,
+      latestSnapshotAt: row.latestAt,
+      snapshotCount: row.count,
+      latestTrigger: row.trigger === "manual" ? "manual" : "auto",
+    }));
+    const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].latestSnapshotAt : null;
+    return jsonResponse({ items, nextCursor });
+  });
 
   // 1. GET /workspace/:id/history?path=&limit=&before= — list snapshots for a file.
   addRoute(routes, "GET", "/workspace/:id/history", "client", async (ctx) => {

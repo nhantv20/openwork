@@ -1936,6 +1936,20 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/history/diff?path=${encodeURIComponent(path)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
         { token, hostToken },
       ),
+    listWorkspaceChanges: (workspaceId: string, opts?: { limit?: number; before?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.before) params.set("before", String(opts.before));
+      const qs = params.toString();
+      return requestJson<{
+        items: Array<{ filePath: string; latestSnapshotAt: number; snapshotCount: number; latestTrigger: "auto" | "manual" }>;
+        nextCursor: number | null;
+      }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/changes${qs ? `?${qs}` : ""}`,
+        { token, hostToken },
+      );
+    },
   };
 }
 

@@ -255,7 +255,86 @@ describe("history API routes", () => {
     expect(diff.diff).toContain("+new");
   });
 
-  test("path with subdirs is accepted", async () => {
+  test("changes endpoint returns one row per file with at least one snapshot", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    // Seed: 2 snapshots in a.ts, 1 in b.ts.
+    for (let i = 0; i < 2; i += 1) {
+      await json(
+        await fetch(`${base}/workspace/ws_1/history/snapshot?path=a.ts`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ content: `a-v${i}` }),
+        }),
+      );
+    }
+    await json(
+      await fetch(`${base}/workspace/ws_1/history/snapshot?path=b.ts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: "b-v0" }),
+      }),
+    );
+    const changes = await json(
+      await fetch(`${base}/workspace/ws_1/changes`, { headers }),
+    );
+    expect(changes.items).toHaveLength(2);
+    // Sorted by latestSnapshotAt DESC; b.ts was saved last.
+    expect(changes.items[0].filePath).toBe("b.ts");
+    expect(changes.items[0].snapshotCount).toBe(1);
+    expect(changes.items[1].filePath).toBe("a.ts");
+    expect(changes.items[1].snapshotCount).toBe(2);
+  });
+
+  test("changes endpoint respects cursor pagination via before", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    // Seed: 3 distinct files with 1 snapshot each.
+    for (const path of ["a.ts", "b.ts", "c.ts"]) {
+      await json(
+        await fetch(`${base}/workspace/ws_1/history/snapshot?path=${path}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ content: "x" }),
+        }),
+      );
+      // Small sleep so createdAt differs across files.
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const first = await json(
+      await fetch(`${base}/workspace/ws_1/changes?limit=2`, { headers }),
+    );
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).not.toBeNull();
+    const second = await json(
+      await fetch(`${base}/workspace/ws_1/changes?limit=2&before=${first.nextCursor}`, { headers }),
+    );
+    expect(second.items).toHaveLength(1);
+    // No overlap with first page.
+    const firstPaths = new Set(first.items.map((i: { filePath: string }) => i.filePath));
+    expect(firstPaths.has(second.items[0].filePath)).toBe(false);
+  });
+
+  test("changes endpoint cross-workspace isolation", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    // Snapshot in ws_1
+    await json(
+      await fetch(`${base}/workspace/ws_1/history/snapshot?path=ws1-only.ts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ content: "x" }),
+      }),
+    );
+    // Query ws_2 (doesn't exist as a workspace) — should return 404.
+    const response = await fetch(`${base}/workspace/ws_2/changes`, { headers });
+    expect(response.status).toBe(404);
+  });
+
+  test("diff endpoint with from='current' reads the live file", async () => {
     const workspaceRoot = await setupWorkspace();
     const { base, token } = await startHistoryServer(workspaceRoot);
     const headers = auth(token);
