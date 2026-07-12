@@ -459,6 +459,18 @@ export type OpenworkFileSnapshot = {
 };
 
 export type OpenworkFileSnapshotListResponse = { items: OpenworkFileSnapshot[] };
+
+/**
+ * Subset of OpenworkFileSnapshot that the `/history/latest` route returns.
+ * The server fills these from the SQLite row; the badge only needs the four
+ * fields below to compute its relative-time label.
+ */
+export type OpenworkFileSnapshotLite = {
+  id: string;
+  createdAt: number;
+  size: number;
+  trigger: "auto" | "manual";
+};
 export type OpenworkFileSnapshotSaveResponse = {
   snapshot: OpenworkFileSnapshot;
   deduped: boolean;
@@ -1912,6 +1924,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken },
       );
     },
+    // round-5: cheaper "latest snapshot" for the HistoryStatusBadge poll.
+    // Returns null when no snapshot exists for the path.
+    listFileLatest: (workspaceId: string, path: string) =>
+      requestJson<{ snapshot: OpenworkFileSnapshotLite | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/latest?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
     saveFileSnapshot: (workspaceId: string, path: string, content: string, trigger: "auto" | "manual" = "manual") =>
       requestJson<OpenworkFileSnapshotSaveResponse>(
         baseUrl,

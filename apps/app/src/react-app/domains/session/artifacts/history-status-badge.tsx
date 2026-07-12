@@ -8,20 +8,24 @@
  *   - "auto-snapshot · 2s ago" when the latest snapshot is fresh
  *   - "auto-snapshot · 5 min ago" when older
  *
- * Polls `/workspace/:id/files/:path/history/latest` every 3s (paused when the
- * tab is hidden, matching `artifact-panel`'s existing convention).
+ * Polls `client.listFileLatest(workspaceId, filePath)` every 3s. Paused when
+ * the tab is hidden (matches `artifact-panel`'s existing convention).
+ *
+ * round-5 fix: previously called `useOpenworkServer()` to get the base URL +
+ * auth token, but the `OpenworkServerProvider` is never mounted anywhere in
+ * the React tree, so the badge crashed the whole artifact panel on first
+ * render. The badge already receives a fully-initialised `client` via
+ * `props.client`, so we use that directly (matching how `FileHistoryPanel`
+ * consumes the same client).
  */
 import { useEffect, useMemo, useState } from "react";
 
-import type { OpenworkServerClient } from "@/app/lib/openwork-server";
-import { useOpenworkServer } from "../../connections/openwork-server-provider";
+import type {
+  OpenworkServerClient,
+  OpenworkFileSnapshotLite,
+} from "@/app/lib/openwork-server";
 
-type FileSnapshotLite = {
-  id: string;
-  createdAt: number;
-  size: number;
-  trigger: "auto" | "manual";
-};
+type LatestState = OpenworkFileSnapshotLite | null | "missing" | "error";
 
 type Props = {
   client: OpenworkServerClient | null;
@@ -41,10 +45,7 @@ function formatRelative(ts: number, now: number): string {
 }
 
 export function HistoryStatusBadge({ client, workspaceId, filePath, intervalMs = 3000 }: Props) {
-  const server = useOpenworkServer();
-  const base = server.getSnapshot().openworkServerBaseUrl.replace(/\/+$/, "");
-  const token = server.getSnapshot().openworkServerAuth.token;
-  const [latest, setLatest] = useState<FileSnapshotLite | null | "missing">(null);
+  const [latest, setLatest] = useState<LatestState>(null);
   const [now, setNow] = useState<number>(() => Date.now());
   const [tabVisible, setTabVisible] = useState<boolean>(
     typeof document === "undefined" ? true : document.visibilityState === "visible",
@@ -60,22 +61,14 @@ export function HistoryStatusBadge({ client, workspaceId, filePath, intervalMs =
 
   // Poll the server for the latest snapshot. Skips if no workspace/file.
   useEffect(() => {
-    if (!client || !workspaceId || !filePath || !base || !tabVisible) return undefined;
+    if (!client || !workspaceId || !filePath || !tabVisible) return undefined;
     let cancelled = false;
     const tick = async () => {
       try {
-        const url = `${base}/workspace/${encodeURIComponent(workspaceId)}/files/${encodeURIComponent(filePath)}/history/latest`;
-        const headers: Record<string, string> = {};
-        if (token) headers.Authorization = `Bearer ${token}`;
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-          if (!cancelled) setLatest("missing");
-          return;
-        }
-        const data = (await res.json()) as { snapshot: FileSnapshotLite | null };
-        if (!cancelled) setLatest(data.snapshot ?? "missing");
+        const { snapshot } = await client.listFileLatest(workspaceId, filePath);
+        if (!cancelled) setLatest(snapshot ?? "missing");
       } catch {
-        if (!cancelled) setLatest("missing");
+        if (!cancelled) setLatest("error");
       }
     };
     void tick();
@@ -86,7 +79,7 @@ export function HistoryStatusBadge({ client, workspaceId, filePath, intervalMs =
       cancelled = true;
       clearInterval(id);
     };
-  }, [client, workspaceId, filePath, base, token, intervalMs, tabVisible]);
+  }, [client, workspaceId, filePath, intervalMs, tabVisible]);
 
   // Tick "now" every 10s so relative times stay fresh without re-fetching.
   useEffect(() => {
@@ -97,6 +90,7 @@ export function HistoryStatusBadge({ client, workspaceId, filePath, intervalMs =
   const label = useMemo(() => {
     if (latest === null) return "auto-snapshot · …";
     if (latest === "missing") return "auto-snapshot · never";
+    if (latest === "error") return "auto-snapshot · offline";
     return `auto-snapshot · ${formatRelative(latest.createdAt, now)}`;
   }, [latest, now]);
 
@@ -104,9 +98,9 @@ export function HistoryStatusBadge({ client, workspaceId, filePath, intervalMs =
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-full border border-dls-border bg-dls-sidebar/30 px-2 py-0.5 text-[10px] font-medium text-dls-secondary"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-dls-border bg-dls-sidebar/30 px-2 py-0.5 text-[10px] font-medium text-dls-secondary"
       data-testid="history-status-badge"
-      data-latest={latest && latest !== "missing" ? latest.id : "none"}
+      data-latest={latest && latest !== "missing" && latest !== "error" ? latest.id : "none"}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
       {label}

@@ -90,6 +90,49 @@ describe("history API routes", () => {
     expect(list.items[1].content).toBe("v1");
   });
 
+  test("latest returns the most recent snapshot for a file (round-5)", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    for (let i = 0; i < 3; i += 1) {
+      await json(
+        await fetch(`${base}/workspace/ws_1/history/snapshot?path=a.ts`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ content: `v${i}`, trigger: "manual" }),
+        }),
+      );
+      // Ensure ordering: a few ms between writes so createdAt differs.
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const latest = await json(
+      await fetch(`${base}/workspace/ws_1/history/latest?path=a.ts`, { headers }),
+    );
+    expect(latest.snapshot).not.toBeNull();
+    expect(latest.snapshot.filePath).toBe("a.ts");
+    // Most recent content wins.
+    expect(latest.snapshot.content).toBe("v2");
+  });
+
+  test("latest returns null snapshot for an unseen file (round-5)", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const headers = auth(token);
+    const latest = await json(
+      await fetch(`${base}/workspace/ws_1/history/latest?path=never-saved.ts`, { headers }),
+    );
+    expect(latest.snapshot).toBeNull();
+  });
+
+  test("latest returns 400 when path query param is missing (round-5)", async () => {
+    const workspaceRoot = await setupWorkspace();
+    const { base, token } = await startHistoryServer(workspaceRoot);
+    const res = await fetch(`${base}/workspace/ws_1/history/latest`, {
+      headers: auth(token),
+    });
+    expect(res.status).toBe(400);
+  });
+
   test("snapshot returns the saved row + deduped flag on second save", async () => {
     const workspaceRoot = await setupWorkspace();
     const { base, token } = await startHistoryServer(workspaceRoot);

@@ -217,6 +217,16 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     return jsonResponse({ items });
   });
 
+  // 1b. GET /workspace/:id/history/latest?path= — round-5 fix: cheaper endpoint
+  // for the HistoryStatusBadge poll. Avoids the cost of fetching the full list
+  // (and the badge never reads beyond item[0]).
+  addRoute(routes, "GET", "/workspace/:id/history/latest", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const filePath = readPathFromQuery(ctx.url);
+    const snapshot = await store.findLatest(workspace.id, filePath);
+    return jsonResponse({ snapshot });
+  });
+
   // 2. POST /workspace/:id/history/snapshot?path= — create a manual snapshot.
   addRoute(routes, "POST", "/workspace/:id/history/snapshot", "client", async (ctx) => {
     ensureWritable(config);
