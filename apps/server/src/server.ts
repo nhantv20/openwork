@@ -38,6 +38,7 @@ import {
   sanitizeOpenworkTemplateConfig,
 } from "./blueprint-sessions.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
+import { resolveDefaultModel } from "./opencode-model.js";
 import { seedOpencodeSessionMessages } from "./opencode-db.js";
 import { listPortableFiles } from "./portable-files.js";
 import {
@@ -933,63 +934,15 @@ function createWorkspaceOpencodeClient(config: ServerConfig, workspace: Workspac
  *  override, so the engine doesn't 500 on `session.prompt` for a
  *  session with no model bound.
  *
- *  Fallback chain: `Config.model` (workspace-wide default) →
- *  `ProviderList.default[providerID]` (per-provider first model) →
- *  first connected provider's first model. The chain is what the
- *  OpenCode TUI itself follows when no model is picked, so it gives
- *  us a sensible default even when the workspace has no explicit
- *  `model` set in its config. */
+ *  The default-model resolution chain is shared with the
+ *  `/api/scheduled/models` route (see `opencode-model.ts`). Keeping
+ *  one helper means runner and UI agree on the order: explicit
+ *  `Config.model` → `Config.providers().default[providerID]` →
+ *  first provider's first model. */
 function wrapOpencodeJobClient(client: ReturnType<typeof createWorkspaceOpencodeClient>): OpencodeJobClient {
   return {
     session: client.session,
-    getDefaultModel: async () => {
-      // 1) Workspace-wide `Config.model`.
-      try {
-        const result = await client.config.get();
-        const data = isRecord(result) ? result.data : undefined;
-        if (isRecord(data)) {
-          const model = data.model;
-          if (typeof model === "string" && model.trim()) return model.trim();
-        }
-      } catch {
-        // fall through to the next probe
-      }
-      // 2) Provider catalog default.
-      const sdk = client as unknown as {
-        config?: { providers?: () => Promise<unknown> };
-      };
-      if (sdk.config?.providers) {
-        try {
-          const result = await sdk.config.providers();
-          const data = isRecord(result) ? result.data : undefined;
-          if (isRecord(data)) {
-            const all = Array.isArray(data.providers) ? data.providers : [];
-            const defaultMap = isRecord(data.default) ? data.default : {};
-            // Prefer the engine's reported `default` map.
-            for (const [providerID, modelID] of Object.entries(defaultMap)) {
-              if (typeof modelID === "string" && modelID.trim()) {
-                return `${providerID}/${modelID}`;
-              }
-            }
-            // Otherwise the first provider's first model — keeps the
-            // user moving even when no explicit default is configured.
-            for (const provider of all) {
-              if (!isRecord(provider)) continue;
-              const providerID = String(provider.id ?? "").trim();
-              if (!providerID) continue;
-              const models = isRecord(provider.models) ? provider.models : {};
-              const firstModelID = Object.keys(models)[0];
-              if (firstModelID) {
-                return `${providerID}/${firstModelID}`;
-              }
-            }
-          }
-        } catch {
-          // fall through
-        }
-      }
-      return null;
-    },
+    getDefaultModel: () => resolveDefaultModel(client),
   } as unknown as OpencodeJobClient;
 }
 

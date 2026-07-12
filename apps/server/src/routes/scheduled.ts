@@ -28,6 +28,7 @@ import {
   type SchedulerApi,
   getActiveScheduler,
 } from "../scheduled/scheduler.js";
+import { listProviderModels } from "../opencode-model.js";
 import {
   DEFAULT_JOB_TIMEOUT_MS,
   executeScheduledJob,
@@ -209,64 +210,16 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     }
     const workspace = await resolveWorkspace(config, workspaceId.trim());
     const client = getOpencodeClient(workspace);
-    const models: Array<{
-      value: string;
-      label: string;
-      providerLabel: string;
-      isDefault: boolean;
-    }> = [];
-
-    let defaultModel: string | null = null;
-    if (client.getDefaultModel) {
-      try {
-        const def = await client.getDefaultModel();
-        defaultModel = def ?? null;
-      } catch {
-        defaultModel = null;
-      }
-    }
-
-    // Try to enumerate the provider catalog. We don't depend on this
-    // shape; the client may or may not expose it.
+    // Re-use the same default-model resolution + provider catalog
+    // walker the runner uses, so the dialog and the runner can never
+    // disagree about which model the engine will actually run.
     const sdk = client as unknown as {
-      config?: { providers?: () => Promise<unknown> };
+      config?: {
+        get?: () => Promise<unknown>;
+        providers?: () => Promise<unknown>;
+      };
     };
-    const providersPromise = sdk.config?.providers?.();
-    if (providersPromise) {
-      try {
-        const result = await providersPromise;
-        const data = isRecord(result) ? result.data : undefined;
-        const all = isRecord(data) && Array.isArray(data.providers) ? data.providers : [];
-        const defaultMap = isRecord(data) && isRecord(data.default) ? data.default : {};
-        for (const provider of all) {
-          if (!isRecord(provider)) continue;
-          const providerID = String(provider.id ?? "").trim();
-          if (!providerID) continue;
-          const providerName = String(provider.name ?? providerID);
-          const providerModels = isRecord(provider.models) ? provider.models : {};
-          for (const [modelID, def] of Object.entries(providerModels)) {
-            if (!modelID) continue;
-            const modelName = isRecord(def) ? String(def.name ?? modelID) : modelID;
-            const value = `${providerID}/${modelID}`;
-            const isDefault = String(defaultMap[providerID] ?? "") === modelID || defaultModel === value;
-            models.push({
-              value,
-              label: modelName,
-              providerLabel: providerName,
-              isDefault,
-            });
-          }
-        }
-      } catch {
-        // Swallow — empty list is the documented fallback.
-      }
-    }
-    // Stable sort: default first, then provider + model label.
-    models.sort((a, b) => {
-      if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
-      if (a.providerLabel !== b.providerLabel) return a.providerLabel.localeCompare(b.providerLabel);
-      return a.label.localeCompare(b.label);
-    });
+    const { models, defaultModel } = await listProviderModels(sdk);
     return jsonResponse({ models, defaultModel });
   });
 

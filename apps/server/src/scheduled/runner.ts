@@ -154,7 +154,7 @@ export async function executeScheduledJob(
   // the OpenCode client for the workspace default — without it the
   // engine 500s on `session.prompt` because no model is bound to the
   // newly created session.
-  let modelOverride: { providerID: string; modelID: string } | undefined;
+  let modelOverride: { providerID: string; modelID: string; variant?: string } | undefined;
   if (job.model) {
     const parsed = parseModelString(job.model);
     if (!parsed) {
@@ -270,10 +270,20 @@ export async function executeScheduledJob(
 
   // 5) Success — record outcome + bump the parent job.
   const finished = deps.db.updateRun(run.id, { status: "success", finishedAt: now() });
-  deps.db.updateJob(job.id, {
-    lastRunAt: now(),
-    lastRunSessionId: sessionId,
-  });
+  // Best-effort: the run row is the source of truth for run status.
+  // If we can't bump the parent job's last-run metadata, the next
+  // fire will sort it out via the scheduler's own bookkeeping.
+  try {
+    deps.db.updateJob(job.id, {
+      lastRunAt: now(),
+      lastRunSessionId: sessionId,
+    });
+  } catch (err) {
+    log("updateJob failed after success; run status stays 'success'", {
+      jobId: job.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   log("job completed", { jobId: job.id, sessionId });
   return finished ?? run;
 }
