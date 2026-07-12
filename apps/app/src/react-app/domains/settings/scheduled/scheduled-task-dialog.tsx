@@ -12,7 +12,7 @@
  * via croner before submit; the server re-validates and returns 400
  * on cron error (defense in depth).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
@@ -111,6 +111,27 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
   const cronValidation = useMemo(() => validateCron(cron, timezone), [cron, timezone]);
 
   const isEdit = Boolean(props.initialJob);
+
+  // Auto-pick the workspace default model the first time the catalog
+  // resolves for a fresh create-form. Editing an existing job keeps
+  // the stored value (or "" if the user explicitly cleared it).
+  const hasAutoPickedRef = useRef(false);
+  useEffect(() => {
+    if (hasAutoPickedRef.current) return;
+    if (isEdit) {
+      hasAutoPickedRef.current = true;
+      return;
+    }
+    const data = modelsQuery.data;
+    if (!data) return;
+    if (data.defaultModel) {
+      setModel(data.defaultModel);
+    } else if (data.models.length > 0) {
+      const first = data.models[0];
+      if (first) setModel(first.value);
+    }
+    hasAutoPickedRef.current = true;
+  }, [modelsQuery.data, isEdit]);
 
   const mutation = useMutation({
     mutationFn: async () => {

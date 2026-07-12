@@ -169,10 +169,16 @@ export async function executeScheduledJob(
   } else if (client.getDefaultModel) {
     try {
       const def = await client.getDefaultModel();
+      log("getDefaultModel returned", { jobId: job.id, def });
       const parsed = def ? parseModelString(def) : null;
       if (parsed) {
         modelOverride = parsed;
         log("using workspace default model", { jobId: job.id, model: def });
+      } else {
+        log("getDefaultModel returned no usable model", {
+          jobId: job.id,
+          def: def ?? null,
+        });
       }
     } catch (err) {
       log("getDefaultModel failed; proceeding without model", {
@@ -180,7 +186,17 @@ export async function executeScheduledJob(
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  } else {
+    log("client has no getDefaultModel helper; proceeding without model", {
+      jobId: job.id,
+    });
   }
+
+  log("resolved model for run", {
+    jobId: job.id,
+    storedModel: job.model,
+    modelOverride: modelOverride ?? null,
+  });
 
   // 1) Create a session under the job's chosen OpenCode agent. Without an
   // explicit `agent` the engine returns 500 on the first prompt because

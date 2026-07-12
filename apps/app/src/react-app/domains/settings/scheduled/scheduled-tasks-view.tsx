@@ -71,6 +71,20 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
     },
   });
 
+  // Same catalog the dialog fetches — used to show a human-friendly
+  // model label in the list row instead of the raw `"providerID/modelID"`
+  // string we store on disk.
+  const modelsQuery = useQuery({
+    queryKey: ["scheduled-models", props.selectedWorkspaceId],
+    enabled,
+    queryFn: async () => {
+      if (!props.openworkServerClient) {
+        throw new Error("OpenWork server is not connected");
+      }
+      return props.openworkServerClient.listScheduledModels(props.selectedWorkspaceId);
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: async (input: { jobId: string; enabled: boolean }) => {
       if (!props.openworkServerClient) {
@@ -184,7 +198,7 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
                       {job.name}
                     </div>
                     <div className="truncate font-mono text-[11px] text-dls-secondary">
-                      {job.cronExpression} · {job.timezone} · {job.agent} · {job.model ?? t("settings.scheduled_model_default_badge")}
+                      {job.cronExpression} · {job.timezone} · {job.agent} · {modelsQuery.data?.models?.find((m) => m.value === job.model)?.label ?? job.model ?? t("settings.scheduled_model_default_badge")}
                     </div>
                   </button>
                   <Button

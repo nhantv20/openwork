@@ -931,20 +931,74 @@ function createWorkspaceOpencodeClient(config: ServerConfig, workspace: Workspac
  *  helper that asks the engine for the workspace's default
  *  `providerID/modelID` — used when a job has no explicit model
  *  override, so the engine doesn't 500 on `session.prompt` for a
- *  session with no model bound. */
+ *  session with no model bound.
+ *
+ *  Fallback chain: `Config.model` (workspace-wide default) →
+ *  `ProviderList.default[providerID]` (per-provider first model) →
+ *  first connected provider's first model. The chain is what the
+ *  OpenCode TUI itself follows when no model is picked, so it gives
+ *  us a sensible default even when the workspace has no explicit
+ *  `model` set in its config. */
 function wrapOpencodeJobClient(client: ReturnType<typeof createWorkspaceOpencodeClient>): OpencodeJobClient {
   return {
     session: client.session,
     getDefaultModel: async () => {
+      // 1) Workspace-wide `Config.model`.
       try {
         const result = await client.config.get();
         const data = isRecord(result) ? result.data : undefined;
-        if (!isRecord(data)) return null;
-        const model = data.model;
-        return typeof model === "string" && model.trim() ? model.trim() : null;
+        if (isRecord(data)) {
+          const model = data.model;
+          if (typeof model === "string" && model.trim()) return model.trim();
+        }
       } catch {
-        return null;
+        // fall through to the next probe
       }
+      // 2) Provider catalog default.
+      const sdk = client as unknown as {
+        provider?: { list?: () => Promise<unknown> };
+      };
+      if (sdk.provider?.list) {
+        try {
+          const result = await sdk.provider.list();
+          const data = isRecord(result) ? result.data : undefined;
+          if (isRecord(data)) {
+            const all = Array.isArray(data.all) ? data.all : [];
+            const defaultMap = isRecord(data.default) ? data.default : {};
+            // Prefer the engine's reported `default` map.
+            for (const [providerID, modelID] of Object.entries(defaultMap)) {
+              if (typeof modelID === "string" && modelID.trim()) {
+                return `${providerID}/${modelID}`;
+              }
+            }
+            // Otherwise the first connected provider's first model.
+            const connected = Array.isArray(data.connected) ? (data.connected as unknown[]).map(String) : [];
+            for (const providerID of connected) {
+              const provider = all.find((p) => isRecord(p) && String(p.id ?? "") === providerID);
+              if (!isRecord(provider)) continue;
+              const models = isRecord(provider.models) ? provider.models : {};
+              const firstModelID = Object.keys(models)[0];
+              if (firstModelID) {
+                return `${providerID}/${firstModelID}`;
+              }
+            }
+            // Last resort: any provider, any model.
+            for (const provider of all) {
+              if (!isRecord(provider)) continue;
+              const providerID = String(provider.id ?? "").trim();
+              if (!providerID) continue;
+              const models = isRecord(provider.models) ? provider.models : {};
+              const firstModelID = Object.keys(models)[0];
+              if (firstModelID) {
+                return `${providerID}/${firstModelID}`;
+              }
+            }
+          }
+        } catch {
+          // fall through
+        }
+      }
+      return null;
     },
   } as unknown as OpencodeJobClient;
 }
