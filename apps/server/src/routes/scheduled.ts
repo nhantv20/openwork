@@ -21,7 +21,7 @@
 import { Cron } from "croner";
 
 import { ApiError } from "../errors.js";
-import type { ScheduledJob, ServerConfig } from "../types.js";
+import type { ScheduledJob, ServerConfig, TokenScope } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { scheduledDb, type ScheduledDb } from "../scheduled/repo.js";
 import {
@@ -39,6 +39,8 @@ type JsonResponse = (data: unknown, status?: number) => Response;
 type ParseOptionalBoolean = (value: string | null, name: string) => boolean | undefined;
 type ParseOptionalPositiveInteger = (value: string | null, name: string) => number | undefined;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
+type EnsureWritable = (config: ServerConfig) => void;
+type RequireClientScope = (ctx: RequestContext, required: TokenScope) => void;
 
 export interface RegisterScheduledRoutesOptions {
   routes: Route[];
@@ -53,6 +55,13 @@ export interface RegisterScheduledRoutesOptions {
    *  typed against `OpencodeJobClient` (structural), so any client with
    *  the three required methods works. */
   getOpencodeClient: (workspace: WorkspaceInfo) => OpencodeJobClient;
+  /** Reject the request when the server is in read-only mode. Required
+   *  for every mutate route (POST/PATCH/DELETE/run). */
+  ensureWritable: EnsureWritable;
+  /** Reject the request when the client token's scope is below
+   *  `collaborator`. Required for every mutate route; GET routes keep
+   *  the base `client` auth and skip this check. */
+  requireClientScope: RequireClientScope;
   /** Override the DB factory for tests. Defaults to `scheduledDb`. */
   db?: (config: ServerConfig) => Promise<ScheduledDb>;
   /** Override the scheduler accessor for tests. Defaults to the
@@ -65,11 +74,19 @@ export interface RegisterScheduledRoutesOptions {
 const DEFAULT_RUNS_LIMIT = 20;
 const MAX_RUNS_LIMIT = 100;
 
+/** Length caps for free-text fields. Kept generous enough for any
+ *  real prompt, but tight enough to defang a DoS attempt that floods
+ *  the SQLite file with megabytes of garbage. */
+const MAX_NAME_LENGTH = 200;
+const MAX_PROMPT_LENGTH = 64 * 1024;
+const MAX_CRON_LENGTH = 100;
+const MAX_TIMEZONE_LENGTH = 64;
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function asString(value: unknown, field: string): string {
+function asString(value: unknown, field: string, maxLength: number = MAX_NAME_LENGTH): string {
   if (typeof value !== "string") {
     throw new ApiError(400, "invalid_body", `${field} must be a string`);
   }
@@ -77,15 +94,21 @@ function asString(value: unknown, field: string): string {
   if (!trimmed) {
     throw new ApiError(400, "invalid_body", `${field} must not be empty`);
   }
+  if (trimmed.length > maxLength) {
+    throw new ApiError(400, "invalid_body", `${field} must be at most ${maxLength} characters`);
+  }
   return trimmed;
 }
 
-function asOptionalString(value: unknown, field: string): string | undefined {
+function asOptionalString(value: unknown, field: string, maxLength: number = MAX_NAME_LENGTH): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
     throw new ApiError(400, "invalid_body", `${field} must be a string`);
   }
   const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw new ApiError(400, "invalid_body", `${field} must be at most ${maxLength} characters`);
+  }
   return trimmed || undefined;
 }
 
@@ -131,6 +154,8 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     readJsonBody,
     resolveWorkspace,
     getOpencodeClient,
+    ensureWritable,
+    requireClientScope,
   } = options;
 
   function jobToJson(job: ScheduledJob): Record<string, unknown> {
@@ -162,12 +187,14 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
 
   // POST /api/scheduled
   addRoute(routes, "POST", "/api/scheduled", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const body = await readJsonBody(ctx.request);
-    const workspaceId = asString(body.workspaceId, "workspaceId");
-    const name = asString(body.name, "name");
-    const prompt = asString(body.prompt, "prompt");
-    const cronExpression = asString(body.cron, "cron");
-    const timezone = asString(body.timezone ?? "Asia/Tokyo", "timezone");
+    const workspaceId = asString(body.workspaceId, "workspaceId", MAX_NAME_LENGTH);
+    const name = asString(body.name, "name", MAX_NAME_LENGTH);
+    const prompt = asString(body.prompt, "prompt", MAX_PROMPT_LENGTH);
+    const cronExpression = asString(body.cron, "cron", MAX_CRON_LENGTH);
+    const timezone = asString(body.timezone ?? "Asia/Tokyo", "timezone", MAX_TIMEZONE_LENGTH);
     // Validate workspace + cron BEFORE persisting so a bad request
     // never leaves a half-written job in DB.
     await resolveWorkspace(config, workspaceId);
@@ -213,6 +240,8 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
 
   // PATCH /api/scheduled/:id
   addRoute(routes, "PATCH", "/api/scheduled/:id", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);
@@ -222,8 +251,8 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     const body = await readJsonBody(ctx.request);
 
     const patch: Parameters<typeof db.updateJob>[1] = {};
-    const newCron = asOptionalString(body.cron, "cron");
-    const newTimezone = asOptionalString(body.timezone, "timezone");
+    const newCron = asOptionalString(body.cron, "cron", MAX_CRON_LENGTH);
+    const newTimezone = asOptionalString(body.timezone, "timezone", MAX_TIMEZONE_LENGTH);
     const effectiveTimezone = newTimezone ?? job.timezone;
 
     if (newCron !== undefined || newTimezone !== undefined) {
@@ -232,9 +261,9 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
       if (newTimezone !== undefined) patch.timezone = newTimezone;
       patch.nextRunAt = nextRunAt;
     }
-    const newName = asOptionalString(body.name, "name");
+    const newName = asOptionalString(body.name, "name", MAX_NAME_LENGTH);
     if (newName !== undefined) patch.name = newName;
-    const newPrompt = asOptionalString(body.prompt, "prompt");
+    const newPrompt = asOptionalString(body.prompt, "prompt", MAX_PROMPT_LENGTH);
     if (newPrompt !== undefined) patch.prompt = newPrompt;
     const newEnabled = asOptionalBoolean(body.enabled, "enabled");
     if (newEnabled !== undefined) patch.enabled = newEnabled;
@@ -252,6 +281,8 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
 
   // DELETE /api/scheduled/:id
   addRoute(routes, "DELETE", "/api/scheduled/:id", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);
@@ -268,6 +299,8 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
 
   // POST /api/scheduled/:id/run — manual trigger
   addRoute(routes, "POST", "/api/scheduled/:id/run", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);

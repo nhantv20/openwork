@@ -229,6 +229,47 @@ describe("executeScheduledJob — happy path", () => {
   });
 });
 
+describe("executeScheduledJob — session cleanup", () => {
+  test("aborts the session when session.prompt throws", async () => {
+    const { client, abort } = makeClient();
+    (client.session.prompt as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("stream died"),
+    );
+    const run = await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("failed");
+    // Abort is best-effort, so we just check it was called with the
+    // sessionId the runner created.
+    expect(abort).toHaveBeenCalledWith({ path: { id: "session-xyz" } });
+  });
+
+  test("aborts the session when session.prompt returns an error", async () => {
+    const { client, prompt, abort } = makeClient();
+    prompt.mockResolvedValueOnce({
+      error: { message: "rate limited" },
+      response: new Response(null, { status: 429 }),
+    });
+    const run = await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("failed");
+    expect(abort).toHaveBeenCalledWith({ path: { id: "session-xyz" } });
+  });
+
+  test("does NOT abort the session on success", async () => {
+    const { client, abort } = makeClient();
+    const run = await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("success");
+    expect(abort).not.toHaveBeenCalled();
+  });
+});
+
 describe("executeScheduledJob — timeout", () => {
   test("aborts session and marks failed when prompt exceeds timeoutMs", async () => {
     const { client, prompt, abort } = makeClient();

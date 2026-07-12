@@ -124,6 +124,14 @@ export async function executeScheduledJob(
   // 2) Mark run as running.
   deps.db.updateRun(run.id, { status: "running", startedAt: now(), sessionId });
 
+  // Best-effort helper to abort the session on any failure path below.
+  // Catches + swallows so an abort error never masks the original
+  // failure that we're recording on the run row.
+  const abortSession = () => {
+    log("aborting session", { jobId: job.id, sessionId });
+    client.session.abort({ path: { id: sessionId } }).catch(() => undefined);
+  };
+
   // 3) Send the prompt under a timeout. On timeout, abort the session
   //    so the OpenCode engine stops consuming the job.
   let promptResult: { data?: unknown; error?: unknown; response: Response };
@@ -133,17 +141,20 @@ export async function executeScheduledJob(
       timeoutMs,
       () => {
         log("job timeout — aborting session", { jobId: job.id, sessionId, timeoutMs });
-        // Best-effort abort; don't await too long.
-        client.session.abort({ path: { id: sessionId } }).catch(() => undefined);
+        // The timeout branch already aborts; reuse the helper for the
+        // log message + best-effort call so we don't drift.
+        abortSession();
       },
     );
   } catch (err) {
+    abortSession();
     return finalizeFailed(deps.db, run.id, now(), `session.prompt threw: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // 4) Inspect the prompt result. The SDK returns
   //    `{ data, response }` on success or `{ error, response }` on failure.
   if (promptResult.error) {
+    abortSession();
     return finalizeFailed(deps.db, run.id, now(), `session.prompt error: ${stringifyError(promptResult.error)}`);
   }
 

@@ -164,6 +164,8 @@ describe("GET /api/scheduled", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("GET", "/api/scheduled");
     expect(res.status).toBe(200);
@@ -182,6 +184,8 @@ describe("POST /api/scheduled", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
   });
 
@@ -240,6 +244,8 @@ describe("POST /api/scheduled", () => {
         throw new ApiError(404, "workspace_not_found", "nope");
       },
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("POST", "/api/scheduled", {
       workspaceId: "missing",
@@ -276,6 +282,8 @@ describe("GET /api/scheduled/:id", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("GET", `/api/scheduled/${job.id}`);
     expect(res.status).toBe(200);
@@ -295,6 +303,8 @@ describe("GET /api/scheduled/:id", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("GET", "/api/scheduled/nope");
     expect(res.status).toBe(404);
@@ -322,6 +332,8 @@ describe("PATCH /api/scheduled/:id", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { name: "New" });
     expect(res.status).toBe(200);
@@ -353,6 +365,8 @@ describe("PATCH /api/scheduled/:id", () => {
       readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
       resolveWorkspace: async () => workspace,
       getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { cron: "garbage" });
     expect(res.status).toBe(400);
@@ -392,6 +406,8 @@ describe("DELETE /api/scheduled/:id", () => {
           abort: async () => ({ data: {} as unknown, response: new Response() }),
         },
       } satisfies OpencodeJobClient),
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("DELETE", `/api/scheduled/${job.id}`);
     expect(res.status).toBe(200);
@@ -426,6 +442,8 @@ describe("POST /api/scheduled/:id/run", () => {
           abort: async () => ({ data: {}, response: new Response() }),
         },
       } satisfies OpencodeJobClient),
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("POST", `/api/scheduled/${job.id}/run`);
     expect(res.status).toBe(200);
@@ -464,6 +482,8 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
           abort: async () => ({ data: {} as unknown, response: new Response() }),
         },
       } satisfies OpencodeJobClient),
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("GET", `/api/scheduled/${job.id}/runs?limit=9999`);
     expect(res.status).toBe(200);
@@ -498,9 +518,107 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
           abort: async () => ({ data: {} as unknown, response: new Response() }),
         },
       } satisfies OpencodeJobClient),
+      ensureWritable: () => {},
+      requireClientScope: () => {},
     });
     const res = await callAs("GET", `/api/scheduled/${job.id}/runs?limit=-1`);
     expect(res.status).toBe(400);
+  });
+});
+
+describe("scheduled routes — security guards", () => {
+  test("POST rejects when ensureWritable throws (read-only mode)", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      enabled: true,
+      nextRunAt: null,
+    });
+    routes = [];
+    let ensureCalled = false;
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {
+        ensureCalled = true;
+        throw new ApiError(403, "read_only", "Server is in read-only mode");
+      },
+      requireClientScope: () => {},
+    });
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "x",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(ensureCalled).toBe(true);
+    expect(res.status).toBe(403);
+    // DB should NOT have a new job written.
+    expect(await db.getJob(job.id)).not.toBeNull();
+  });
+
+  test("POST rejects when requireClientScope throws (viewer scope)", async () => {
+    routes = [];
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {
+        throw new ApiError(403, "forbidden_scope", "Viewer scope cannot mutate");
+      },
+    });
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "x",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(403);
+    // DB should be empty.
+    expect(await db.listJobs()).toHaveLength(0);
+  });
+
+  test("POST rejects prompt longer than 64KB", async () => {
+    const huge = "a".repeat(64 * 1024 + 1);
+    routes = [];
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "x",
+      prompt: huge,
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("invalid_body");
   });
 });
 

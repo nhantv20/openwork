@@ -1454,6 +1454,8 @@ function createRoutes(
     readJsonBody,
     resolveWorkspace,
     getOpencodeClient: (workspace) => createWorkspaceOpencodeClient(config, workspace) as unknown as OpencodeJobClient,
+    ensureWritable,
+    requireClientScope,
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
