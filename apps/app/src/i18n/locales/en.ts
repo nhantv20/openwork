@@ -72,6 +72,7 @@ export default {
   "common.remove": "Remove",
   "common.reset": "Reset",
   "common.save": "Save",
+  "common.create": "Create",
   "common.select": "select",
   "common.show": "Show",
   "common.something_went_wrong": "Something went wrong",

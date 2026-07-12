@@ -96,8 +96,16 @@ function makeClient(overrides: Partial<OpencodeJobClient> = {}): {
     response: new Response(),
   }));
   const abort = vi.fn(async (_input: { path: { id: string } }) => ({ data: { ok: true }, response: new Response() }));
+  // Default workspace model — matches the in-app "use the workspace
+  // default" flow. Tests that want to exercise the no-model branch
+  // override `client.getDefaultModel = async () => null`.
+  const getDefaultModel = vi.fn(async () => "fpt/DeepSeek-V4-Flash");
+  const base: OpencodeJobClient = {
+    session: { create, prompt, abort } as OpencodeJobClient["session"],
+    getDefaultModel,
+  };
   return {
-    client: { session: { create, prompt, abort }, ...overrides } as OpencodeJobClient,
+    client: { ...base, ...overrides } as OpencodeJobClient,
     create,
     prompt,
     abort,
@@ -232,10 +240,18 @@ describe("executeScheduledJob — happy path", () => {
     expect(run.sessionId).toBe("session-xyz");
     expect(run.startedAt).not.toBeNull();
     expect(run.finishedAt).not.toBeNull();
-    expect(create).toHaveBeenCalledWith({ title: "Test job", agent: "build" });
+    expect(create).toHaveBeenCalledWith({
+      title: "Test job",
+      agent: "build",
+      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+    });
     expect(prompt).toHaveBeenCalledWith({
       path: { id: "session-xyz" },
-      body: { parts: [{ type: "text", text: "Summarise today" }], agent: "build" },
+      body: {
+        parts: [{ type: "text", text: "Summarise today" }],
+        agent: "build",
+        model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+      },
     });
     expect(abort).not.toHaveBeenCalled();
 
@@ -323,6 +339,25 @@ describe("executeScheduledJob — happy path", () => {
     expect(run.error).toContain("Invalid stored model");
     expect(create).not.toHaveBeenCalled();
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  test("fails the run with a helpful message when no model is available", async () => {
+    const { client, create, prompt } = makeClient();
+    // No explicit model, and getDefaultModel returns null (no
+    // Config.model, no provider catalog).
+    client.getDefaultModel = async () => null;
+    const run = await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("No model available");
+    expect(create).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
+    // The parent job's lastRunAt should still be bumped so the user
+    // sees a recent timestamp in the Settings list even on failure.
+    const jobAfter = await db.getJob(createdJob.id);
+    expect(jobAfter?.lastRunAt).not.toBeNull();
   });
 });
 

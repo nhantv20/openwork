@@ -85,6 +85,12 @@ const MAX_TIMEZONE_LENGTH = 64;
 const MAX_AGENT_LENGTH = 64;
 const MAX_MODEL_LENGTH = 200;
 
+/** Plan §4.1 caps each workspace at this many scheduled jobs to keep
+ *  the in-process cron registry and the per-workspace settings page
+ *  readable. Disabled jobs count toward the cap so a user can't
+ *  dodge the limit by toggling off jobs. */
+const MAX_JOBS_PER_WORKSPACE = 20;
+
 /** OpenCode ships with two built-in agents. Custom agents from
  *  `~/.config/opencode/agent/*.md` would also be accepted, but we keep
  *  the allowlist tight to surface typos at create-time instead of
@@ -268,6 +274,19 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     const { nextRunAt } = validateCron(cronExpression, timezone);
 
     const db = await resolveDb(options);
+    // Plan §4.1 — cap the number of jobs per workspace so the in-process
+    // cron registry stays bounded. Count existing jobs (any state) and
+    // reject before writing so the DB doesn't end up with a half-baked
+    // row.
+    const existingCount = db.listJobs(workspaceId).length;
+    if (existingCount >= MAX_JOBS_PER_WORKSPACE) {
+      throw new ApiError(
+        409,
+        "too_many_jobs",
+        `This workspace already has ${existingCount} scheduled jobs (max ${MAX_JOBS_PER_WORKSPACE}). Delete some before creating more.`,
+        { limit: MAX_JOBS_PER_WORKSPACE, current: existingCount },
+      );
+    }
     const job = db.createJob({
       workspaceId,
       name,

@@ -24,10 +24,13 @@ import type { ScheduledDb } from "./repo.js";
 
 /** OpenCode SDK client surface we touch. Defined as a structural type so
  *  the runner can be tested with a tiny stub instead of importing the
- *  full SDK. */
+ *  full SDK. The return type is intentionally loose because the SDK
+ *  wraps the result in `{ data, error, response }` and a couple of
+ *  legacy call sites (e.g. `server.ts:3333`) still pass through the
+ *  unwrapped shape; the runner's `extractSessionId` accepts both. */
 export interface OpencodeJobClient {
   session: {
-    create: (input: { title: string; agent?: string; model?: { providerID: string; modelID: string } }) => Promise<{ id: string } | { error: unknown; response: Response }>;
+    create: (input: { title: string; agent?: string; model?: { providerID: string; modelID: string } }) => Promise<unknown>;
     prompt: (input: {
       path: { id: string };
       body: {
@@ -43,8 +46,8 @@ export interface OpencodeJobClient {
    * `"providerID/modelID"`. Called once per run when the job has no
    * explicit `model` so we don't 500 on `session.prompt` for having
    * no model bound to the newly created session. When the helper is
-   * absent or returns null, the runner falls back to passing no model
-   * (legacy behavior).
+   * absent or returns null, the runner fails the run with a clear
+   * "no model available" message.
    */
   getDefaultModel?: () => Promise<string | null>;
 }
@@ -158,11 +161,13 @@ export async function executeScheduledJob(
   if (job.model) {
     const parsed = parseModelString(job.model);
     if (!parsed) {
-      return finalizeFailed(
+      return failAndMarkLastRun(
         deps.db,
+        job,
         run.id,
         now(),
         `Invalid stored model '${job.model}' (expected 'providerID/modelID')`,
+        log,
       );
     }
     modelOverride = parsed;
@@ -201,6 +206,21 @@ export async function executeScheduledJob(
   // 1) Create a session under the job's chosen OpenCode agent. Without an
   // explicit `agent` the engine returns 500 on the first prompt because
   // it can't resolve a primary agent for the empty session.
+  //
+  // If the job has no model override and the engine couldn't resolve a
+  // default, fail fast with a clear message — instead of letting the
+  // engine return 500 on `session.prompt` with the generic
+  // 'Unexpected server error' the user already hit before M2.2.
+  if (!modelOverride && !job.model) {
+    return failAndMarkLastRun(
+      deps.db,
+      job,
+      run.id,
+      now(),
+      "No model available: the workspace has no Config.model and the provider catalog returned no usable model. Open OpenCode Settings → Providers to configure a default, or set a model override on this job.",
+      log,
+    );
+  }
   let sessionId: string | null = null;
   try {
     const createResult = await client.session.create({
@@ -210,10 +230,24 @@ export async function executeScheduledJob(
     });
     sessionId = extractSessionId(createResult);
   } catch (err) {
-    return finalizeFailed(deps.db, run.id, now(), `session.create threw: ${err instanceof Error ? err.message : String(err)}`);
+    return failAndMarkLastRun(
+      deps.db,
+      job,
+      run.id,
+      now(),
+      `session.create threw: ${err instanceof Error ? err.message : String(err)}`,
+      log,
+    );
   }
   if (!sessionId) {
-    return finalizeFailed(deps.db, run.id, now(), "session.create returned no id");
+    return failAndMarkLastRun(
+      deps.db,
+      job,
+      run.id,
+      now(),
+      "session.create returned no id",
+      log,
+    );
   }
 
   // 2) Mark run as running.
@@ -258,14 +292,28 @@ export async function executeScheduledJob(
     });
   } catch (err) {
     abortSession();
-    return finalizeFailed(deps.db, run.id, now(), `session.prompt threw: ${err instanceof Error ? err.message : String(err)}`);
+    return failAndMarkLastRun(
+      deps.db,
+      job,
+      run.id,
+      now(),
+      `session.prompt threw: ${err instanceof Error ? err.message : String(err)}`,
+      log,
+    );
   }
 
   // 4) Inspect the prompt result. The SDK returns
   //    `{ data, response }` on success or `{ error, response }` on failure.
   if (promptResult.error) {
     abortSession();
-    return finalizeFailed(deps.db, run.id, now(), `session.prompt error: ${stringifyError(promptResult.error)}`);
+    return failAndMarkLastRun(
+      deps.db,
+      job,
+      run.id,
+      now(),
+      `session.prompt error: ${stringifyError(promptResult.error)}`,
+      log,
+    );
   }
 
   // 5) Success — record outcome + bump the parent job.
@@ -286,6 +334,37 @@ export async function executeScheduledJob(
   }
   log("job completed", { jobId: job.id, sessionId });
   return finished ?? run;
+}
+
+/** Fail the run AND bump the parent job's `lastRunAt` so the
+ *  Settings list shows a recent timestamp. The session id is
+ *  cleared because a failed session shouldn't be re-opened by the
+ *  next fire — the runner creates a fresh one each time.
+ *
+ *  Used by every error path that happens after the run row has
+ *  been created. Keeping the bump here means callers can't forget
+ *  to mark the parent when they add a new failure branch. */
+function failAndMarkLastRun(
+  db: ScheduledDb,
+  job: ScheduledJob,
+  runId: string,
+  finishedAt: number,
+  error: string,
+  log: (msg: string, ctx?: Record<string, unknown>) => void,
+): JobRun {
+  const updated = finalizeFailed(db, runId, finishedAt, error);
+  try {
+    db.updateJob(job.id, {
+      lastRunAt: finishedAt,
+      lastRunSessionId: null,
+    });
+  } catch (err) {
+    log("updateJob failed after run failure; run row keeps the error", {
+      jobId: job.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return updated;
 }
 
 function finalizeFailed(

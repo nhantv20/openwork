@@ -302,6 +302,32 @@ describe("POST /api/scheduled", () => {
     expect((res.body as { job: { model: string | null } }).job.model).toBeNull();
   });
 
+  test("rejects the 21st job for a workspace with 409 too_many_jobs", async () => {
+    // Seed 20 jobs for ws-1, then expect the next POST to fail fast.
+    for (let i = 0; i < 20; i += 1) {
+      await db.createJob({
+        workspaceId: "ws-1",
+        name: `seed-${i}`,
+        prompt: "p",
+        cronExpression: "0 9 * * *",
+        timezone: "Asia/Tokyo",
+        agent: "build",
+        model: null,
+        enabled: true,
+        nextRunAt: null,
+      });
+    }
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "overflow",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(409);
+    expect((res.body as { code: string }).code).toBe("too_many_jobs");
+  });
+
   test("rejects malformed model with 400 invalid_model", async () => {
     const res = await callAs("POST", "/api/scheduled", {
       workspaceId: "ws-1",
@@ -739,6 +765,7 @@ describe("POST /api/scheduled/:id/run", () => {
           prompt: async () => ({ data: { ok: true as const }, response: new Response() }),
           abort: async () => ({ data: {}, response: new Response() }),
         },
+        getDefaultModel: async () => "fpt/DeepSeek-V4-Flash",
       } satisfies OpencodeJobClient),
       ensureWritable: () => {},
       requireClientScope: () => {},
