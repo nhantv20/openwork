@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderOpen, RefreshCw, X } from "lucide-react";
+import { Download, ExternalLink, FolderOpen, History as HistoryIcon, MoreHorizontal, RefreshCw } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -17,10 +17,15 @@ import { AudioPreview, CodePreview, DiffPreview, HTMLPreview, ImagePreview, Mark
 import { DiffViewer } from "./viewers/diff-viewer";
 import { DocumentViewer } from "./viewers/document-viewer";
 import { SlidesViewer } from "./viewers/slides-viewer";
-import { HistoryStatusBadge } from "./history-status-badge";
 import { FileHistoryPanel } from "./file-history-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { History as HistoryIcon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -108,6 +113,12 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // Round-6: the narrow-header overflow menu opens the same History popover
+  // as the wide-layout inline button. We control it via state so both
+  // surfaces share one Popover instance instead of duplicating the
+  // FileHistoryPanel mount (which keeps the "All changes" tab and the
+  // timeline state aligned).
+  const [historyOpen, setHistoryOpen] = useState(false);
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
@@ -339,7 +350,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-b border-border bg-background mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-        <div className="flex h-10 items-center gap-2 pe-2 ps-4">
+        <div className="@container/artifact-header flex h-10 min-w-0 items-center gap-2 overflow-hidden pe-6 ps-4">
           <div className="min-w-0 flex-1 flex items-center gap-1.5">
             {fileIcon ? (
               <img src={fileIcon} alt="" className="h-4 w-4 shrink-0 object-contain" />
@@ -347,31 +358,78 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
             <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
               {target.name}
             </h3>
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="hidden shrink-0 text-xs text-muted-foreground @sm/artifact-header:inline">
               {target.exists === false ? "missing" : target.size !== undefined ? `${formatFileSize(target.size)}` : ""}
             </span>
-            {target.kind === "file" ? (
-              <HistoryStatusBadge
-                client={client}
-                workspaceId={workspaceId}
-                filePath={target.value}
-              />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Always-visible context actions: Edit / Discard / Save. These
+                belong to the artifact's edit state, so they live in their own
+                row outside the overflow menu — users must never have to dig
+                into a dropdown to commit or cancel an edit. */}
+            {isTextContent(target) && data?.kind === "text" ? (
+              editing || isDirectTextEdit ? (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={(
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (data?.kind === "text") {
+                              setDraft(data.data);
+                            }
+                            setEditing(false);
+                          }}
+                          disabled={isSaving}
+                        >
+                          Discard
+                        </Button>
+                      )}
+                    />
+                    <TooltipContent>Discard changes</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={(
+                        <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data}>{isSaving ? "Saving" : "Save"}</Button>
+                      )}
+                    />
+                    <TooltipContent>Save changes</TooltipContent>
+                  </Tooltip>
+                </>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={(
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    )}
+                  />
+                  <TooltipContent>Edit artifact</TooltipContent>
+                </Tooltip>
+              )
             ) : null}
+
+            {/* File history — always rendered (never hidden by container
+                queries) so the Popover anchor has a stable bounding rect
+                at every header width. Click opens the same History popover
+                as the dropdown item. */}
             {target.kind === "file" ? (
-              <Popover>
+              <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
                 <PopoverTrigger
                   render={
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label="History"
+                      aria-label="File history"
                       data-testid="artifact-history-button"
                     >
                       <HistoryIcon />
                     </Button>
                   }
                 />
-                <PopoverContent className="w-auto p-0" align="end">
+                <PopoverContent className="w-auto p-0" align="end" sideOffset={6}>
                   <FileHistoryPanel
                     client={client}
                     workspaceId={workspaceId}
@@ -396,115 +454,120 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
                 </PopoverContent>
               </Popover>
             ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-          {isTextContent(target) && data?.kind === "text" ? (
-            editing || isDirectTextEdit ? (
-              <>
+
+            {/* Wide layout: inline file-operation buttons (history, download,
+                show, open, reload). Hidden when the artifact header is
+                narrower than 30rem (~480px) so the filename always wins for
+                space; the overflow menu below picks them up at that width. */}
+            <div className="hidden items-center gap-1 @[30rem]/artifact-header:flex">
+              {target.kind === "file" ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          if (data?.kind === "text") {
-                            setDraft(data.data);
-                          }
-                          setEditing(false);
-                        }}
-                        disabled={isSaving}
-                      >
-                        Discard
+                      <Button variant="ghost" size="icon-sm" onClick={() => void download()} aria-label="Download artifact">
+                        <Download />
                       </Button>
                     )}
                   />
-                  <TooltipContent>Discard changes</TooltipContent>
+                  <TooltipContent>Download artifact</TooltipContent>
                 </Tooltip>
+              ) : null}
+              {target.kind === "file" && !isRemoteWorkspace ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data}>{isSaving ? "Saving" : "Save"}</Button>
+                      <Button variant="ghost" size="icon-sm" onClick={() => void revealExternal()} aria-label="Show in folder">
+                        <FolderOpen />
+                      </Button>
                     )}
                   />
-                  <TooltipContent>Save changes</TooltipContent>
+                  <TooltipContent>Show in folder</TooltipContent>
                 </Tooltip>
-              </>
-            ) : (
+              ) : null}
               <Tooltip>
                 <TooltipTrigger
                   render={(
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    <Button variant="ghost" size="icon-sm" onClick={() => void openExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
+                      <ExternalLink />
+                    </Button>
                   )}
                 />
-                <TooltipContent>Edit artifact</TooltipContent>
+                <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
               </Tooltip>
-            )
-          ) : null}
-          {target.kind === "file" ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void download()} aria-label="Download artifact">
-                    <Download />
-                  </Button>
-                )}
-              />
-              <TooltipContent>Download artifact</TooltipContent>
-            </Tooltip>
-          ) : null}
-          {target.kind === "file" && !isRemoteWorkspace ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={(
-                  <Button variant="ghost" size="icon-sm" onClick={() => void revealExternal()} aria-label="Show in folder">
-                    <FolderOpen />
-                  </Button>
-                )}
-              />
-              <TooltipContent>Show in folder</TooltipContent>
-            </Tooltip>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Button variant="ghost" size="icon-sm" onClick={() => void openExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
-                  <ExternalLink />
-                </Button>
-              )}
-            />
-            <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => {
-                    void queryClient.invalidateQueries({
-                      queryKey: ["artifact-panel", workspaceId, target.id],
-                    });
-                  }}
-                  disabled={isLoading}
-                  aria-label="Reload artifact"
-                >
-                  <RefreshCw className={isLoading ? "animate-spin" : undefined} />
-                </Button>
-              )}
-            />
-            <TooltipContent>Reload file</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close artifact">
-                  <X />
-                </Button>
-              )}
-            />
-            <TooltipContent>Close artifact</TooltipContent>
-          </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={(
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        void queryClient.invalidateQueries({
+                          queryKey: ["artifact-panel", workspaceId, target.id],
+                        });
+                      }}
+                      disabled={isLoading}
+                      aria-label="Reload artifact"
+                    >
+                      <RefreshCw className={isLoading ? "animate-spin" : undefined} />
+                    </Button>
+                  )}
+                />
+                <TooltipContent>Reload file</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* Narrow layout: secondary file ops collapse into this overflow
+                menu. Edit/Discard/Save are NOT here — those are handled in
+                the always-visible row above. Shown by default; hidden once
+                the header reaches the wide breakpoint above. */}
+            <div className="flex items-center gap-1 @[30rem]/artifact-header:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="More actions"
+                      data-testid="artifact-more-button"
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="min-w-48">
+                  {target.kind === "file" ? (
+                    <>
+                      <DropdownMenuItem onClick={() => void download()}>
+                        <Download />
+                        <span>Download</span>
+                      </DropdownMenuItem>
+                      {!isRemoteWorkspace ? (
+                        <DropdownMenuItem onClick={() => void revealExternal()}>
+                          <FolderOpen />
+                          <span>Show in folder</span>
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem onClick={() => void openExternal()}>
+                        <ExternalLink />
+                        <span>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          void queryClient.invalidateQueries({
+                            queryKey: ["artifact-panel", workspaceId, target.id],
+                          });
+                        }}
+                        disabled={isLoading}
+                      >
+                        <RefreshCw className={isLoading ? "animate-spin" : undefined} />
+                        <span>Reload</span>
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </div>
