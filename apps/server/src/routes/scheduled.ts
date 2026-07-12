@@ -229,15 +229,14 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     // Try to enumerate the provider catalog. We don't depend on this
     // shape; the client may or may not expose it.
     const sdk = client as unknown as {
-      provider?: { list?: () => Promise<unknown> };
       config?: { providers?: () => Promise<unknown> };
     };
-    const providerListPromise = sdk.provider?.list?.();
-    if (providerListPromise) {
+    const providersPromise = sdk.config?.providers?.();
+    if (providersPromise) {
       try {
-        const result = await providerListPromise;
+        const result = await providersPromise;
         const data = isRecord(result) ? result.data : undefined;
-        const all = isRecord(data) && Array.isArray(data.all) ? data.all : [];
+        const all = isRecord(data) && Array.isArray(data.providers) ? data.providers : [];
         const defaultMap = isRecord(data) && isRecord(data.default) ? data.default : {};
         for (const provider of all) {
           if (!isRecord(provider)) continue;

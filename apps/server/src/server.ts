@@ -956,14 +956,14 @@ function wrapOpencodeJobClient(client: ReturnType<typeof createWorkspaceOpencode
       }
       // 2) Provider catalog default.
       const sdk = client as unknown as {
-        provider?: { list?: () => Promise<unknown> };
+        config?: { providers?: () => Promise<unknown> };
       };
-      if (sdk.provider?.list) {
+      if (sdk.config?.providers) {
         try {
-          const result = await sdk.provider.list();
+          const result = await sdk.config.providers();
           const data = isRecord(result) ? result.data : undefined;
           if (isRecord(data)) {
-            const all = Array.isArray(data.all) ? data.all : [];
+            const all = Array.isArray(data.providers) ? data.providers : [];
             const defaultMap = isRecord(data.default) ? data.default : {};
             // Prefer the engine's reported `default` map.
             for (const [providerID, modelID] of Object.entries(defaultMap)) {
@@ -971,18 +971,8 @@ function wrapOpencodeJobClient(client: ReturnType<typeof createWorkspaceOpencode
                 return `${providerID}/${modelID}`;
               }
             }
-            // Otherwise the first connected provider's first model.
-            const connected = Array.isArray(data.connected) ? (data.connected as unknown[]).map(String) : [];
-            for (const providerID of connected) {
-              const provider = all.find((p) => isRecord(p) && String(p.id ?? "") === providerID);
-              if (!isRecord(provider)) continue;
-              const models = isRecord(provider.models) ? provider.models : {};
-              const firstModelID = Object.keys(models)[0];
-              if (firstModelID) {
-                return `${providerID}/${firstModelID}`;
-              }
-            }
-            // Last resort: any provider, any model.
+            // Otherwise the first provider's first model — keeps the
+            // user moving even when no explicit default is configured.
             for (const provider of all) {
               if (!isRecord(provider)) continue;
               const providerID = String(provider.id ?? "").trim();

@@ -322,10 +322,10 @@ describe("POST /api/scheduled", () => {
       ...okClient,
       getDefaultModel: async () => "fpt/DeepSeek-V4-Flash",
     };
-    (providerClient as unknown as { provider: { list: () => Promise<unknown> } }).provider = {
-      list: async () => ({
+    (providerClient as unknown as { config: { providers: () => Promise<unknown> } }).config = {
+      providers: async () => ({
         data: {
-          all: [
+          providers: [
             {
               id: "fpt",
               name: "FPT Cloud",
@@ -343,7 +343,6 @@ describe("POST /api/scheduled", () => {
             },
           ],
           default: { fpt: "DeepSeek-V4-Flash" },
-          connected: ["fpt", "opencode"],
         },
         response: new Response(),
       }),
