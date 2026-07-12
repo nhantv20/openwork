@@ -115,7 +115,13 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
   // Auto-pick the workspace default model the first time the catalog
   // resolves for a fresh create-form. Editing an existing job keeps
   // the stored value (or "" if the user explicitly cleared it).
+  // Reset the ref each time the dialog opens so a Cancel-then-New
+  // flow still picks the default.
   const hasAutoPickedRef = useRef(false);
+  useEffect(() => {
+    if (!props.open) return;
+    hasAutoPickedRef.current = false;
+  }, [props.open, props.initialJob?.id]);
   useEffect(() => {
     if (hasAutoPickedRef.current) return;
     if (isEdit) {
