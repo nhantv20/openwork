@@ -238,12 +238,12 @@ export class Scheduler implements SchedulerApi {
 
 /* ---------- Module-level singleton (used by server.ts) ---------- */
 
-let activeScheduler: Scheduler | null = null;
+let activeScheduler: SchedulerApi | null = null;
 
-export function setActiveScheduler(scheduler: Scheduler | null): void {
+export function setActiveScheduler(scheduler: SchedulerApi | null): void {
   activeScheduler = scheduler;
 }
 
-export function getActiveScheduler(): Scheduler | null {
+export function getActiveScheduler(): SchedulerApi | null {
   return activeScheduler;
 }

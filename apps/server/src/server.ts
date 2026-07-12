@@ -63,6 +63,10 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { addHistoryRoutes } from "./routes/history.js";
 import { addGitRoutes } from "./routes/git.js";
+import { registerScheduledRoutes } from "./routes/scheduled.js";
+import { Scheduler, setActiveScheduler, getActiveScheduler } from "./scheduled/scheduler.js";
+import { executeScheduledJob, type OpencodeJobClient } from "./scheduled/runner.js";
+import { scheduledDb } from "./scheduled/repo.js";
 import { AgentEditDetector } from "./agent-edit-detector.js";
 import { startAgentEditPoller, type AgentEditPollerHandle } from "./agent-edit-poller.js";
 import { SnapshotStore } from "./file-snapshots.js";
@@ -698,6 +702,27 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   });
   const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers, undefined, agentDetector);
 
+  // Phase 3 / M2: boot the in-process cron scheduler. Jobs are loaded
+  // from `runtime.sqlite` (S1) and registered with croner (S2). The
+  // executor (S3) creates a session and sends the prompt via the
+  // workspace's OpenCode client.
+  // Open the scheduled-jobs DB once and reuse it across runs.
+  const scheduledJobsDb = await scheduledDb(config);
+
+  const scheduler = new Scheduler({
+    config,
+    executor: (job, scheduledFor) =>
+      executeScheduledJob(job, scheduledFor, {
+        config,
+        db: scheduledJobsDb,
+        resolveWorkspace: (id) => resolveWorkspace(config, id),
+        getClient: (workspace) =>
+          createWorkspaceOpencodeClient(config, workspace) as unknown as OpencodeJobClient,
+      }).then(() => undefined),
+  });
+  setActiveScheduler(scheduler);
+  await scheduler.boot();
+
   const serverOptions: {
     hostname: string;
     port: number;
@@ -850,6 +875,11 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       agentDetector.stop();
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
+      const activeScheduler = getActiveScheduler();
+      if (activeScheduler) {
+        await activeScheduler.stop();
+        setActiveScheduler(null);
+      }
       await server.stop();
     },
   };
@@ -1410,6 +1440,20 @@ function createRoutes(
     config,
     jsonResponse,
     resolveWorkspace,
+  });
+
+  // Phase 3 / M2: scheduled jobs (cron). The runner uses the
+  // `createWorkspaceOpencodeClient` factory above; the scheduler is
+  // booted in `startServer` after routes are registered.
+  registerScheduledRoutes({
+    routes,
+    config,
+    jsonResponse,
+    parseOptionalBoolean,
+    parseOptionalPositiveInteger,
+    readJsonBody,
+    resolveWorkspace,
+    getOpencodeClient: (workspace) => createWorkspaceOpencodeClient(config, workspace) as unknown as OpencodeJobClient,
   });
 
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
