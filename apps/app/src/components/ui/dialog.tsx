@@ -17,8 +17,12 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+function DialogClose({ nativeButton = true, ...props }: DialogPrimitive.Close.Props) {
+  // `nativeButton` defaults to `true` because the common pattern in this
+  // codebase is `<DialogClose render={<Button variant="..." />}>` and
+  // shadcn's <Button> renders a native <button>. Callers that wrap a
+  // non-button element can opt out by passing `nativeButton={false}`.
+  return <DialogPrimitive.Close data-slot="dialog-close" nativeButton={nativeButton} {...props} />
 }
 
 function DialogOverlay({
