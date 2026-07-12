@@ -38,9 +38,11 @@ import {
 } from "@/components/ui/select";
 import { t } from "@/i18n";
 import type {
+  OpenworkScheduledAgent,
   OpenworkScheduledJob,
   OpenworkServerClient,
 } from "@/app/lib/openwork-server";
+import { OPENWORK_SCHEDULED_AGENTS } from "@/app/lib/openwork-server";
 import {
   COMMON_TIMEZONES,
   CRON_CHIPS,
@@ -48,6 +50,10 @@ import {
   formatNextRun,
   validateCron,
 } from "./cron-helpers";
+
+/** Server-side default for `agent`. Kept in sync with the
+ *  `DEFAULT_AGENT` constant in `apps/server/src/routes/scheduled.ts`. */
+const DEFAULT_AGENT: OpenworkScheduledAgent = "build";
 
 export type ScheduledTaskDialogProps = {
   open: boolean;
@@ -68,6 +74,9 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
   const [timezone, setTimezone] = useState<string>(
     props.initialJob?.timezone ?? DEFAULT_TIMEZONE,
   );
+  const [agent, setAgent] = useState<OpenworkScheduledAgent>(
+    (props.initialJob?.agent as OpenworkScheduledAgent | undefined) ?? DEFAULT_AGENT,
+  );
 
   // Reset local state whenever the dialog re-opens for a different job.
   useEffect(() => {
@@ -75,6 +84,7 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
     setPrompt(props.initialJob?.prompt ?? "");
     setCron(props.initialJob?.cronExpression ?? "0 9 * * *");
     setTimezone(props.initialJob?.timezone ?? DEFAULT_TIMEZONE);
+    setAgent((props.initialJob?.agent as OpenworkScheduledAgent | undefined) ?? DEFAULT_AGENT);
   }, [props.initialJob?.id, props.open]);
 
   const cronValidation = useMemo(() => validateCron(cron, timezone), [cron, timezone]);
@@ -92,6 +102,7 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
           prompt,
           cron: cron.trim(),
           timezone,
+          agent,
         });
         return result.job;
       }
@@ -101,6 +112,7 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
         prompt,
         cron: cron.trim(),
         timezone,
+        agent,
       });
       return result.job;
     },
@@ -243,6 +255,34 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="scheduled-dialog-agent">
+              {t("settings.scheduled_field_agent")}
+            </FieldLabel>
+            <Select
+              value={agent}
+              onValueChange={(value) => {
+                if (value && (OPENWORK_SCHEDULED_AGENTS as readonly string[]).includes(value)) {
+                  setAgent(value as OpenworkScheduledAgent);
+                }
+              }}
+            >
+              <SelectTrigger id="scheduled-dialog-agent" data-testid="scheduled-dialog-agent">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OPENWORK_SCHEDULED_AGENTS.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {t(`settings.scheduled_agent_${a}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              {t("settings.scheduled_field_agent_description")}
+            </FieldDescription>
           </Field>
         </div>
 

@@ -27,10 +27,10 @@ import type { ScheduledDb } from "./repo.js";
  *  full SDK. */
 export interface OpencodeJobClient {
   session: {
-    create: (input: { title: string }) => Promise<{ id: string } | { error: unknown; response: Response }>;
+    create: (input: { title: string; agent?: string }) => Promise<{ id: string } | { error: unknown; response: Response }>;
     prompt: (input: {
       path: { id: string };
-      body: { parts: Array<{ type: "text"; text: string }> };
+      body: { parts: Array<{ type: "text"; text: string }>; agent?: string };
     }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
     abort: (input: { path: { id: string } }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
   };
@@ -116,10 +116,12 @@ export async function executeScheduledJob(
 
   const client = deps.getClient(workspace);
 
-  // 1) Create a session.
+  // 1) Create a session under the job's chosen OpenCode agent. Without an
+  // explicit `agent` the engine returns 500 on the first prompt because
+  // it can't resolve a primary agent for the empty session.
   let sessionId: string | null = null;
   try {
-    const createResult = await client.session.create({ title: job.name });
+    const createResult = await client.session.create({ title: job.name, agent: job.agent });
     sessionId = extractSessionId(createResult);
   } catch (err) {
     return finalizeFailed(deps.db, run.id, now(), `session.create threw: ${err instanceof Error ? err.message : String(err)}`);
@@ -144,7 +146,10 @@ export async function executeScheduledJob(
   let promptResult: { data?: unknown; error?: unknown; response: Response };
   try {
     promptResult = await withTimeout(
-      client.session.prompt({ path: { id: sessionId }, body: { parts: [{ type: "text", text: job.prompt }] } }),
+      client.session.prompt({
+        path: { id: sessionId },
+        body: { parts: [{ type: "text", text: job.prompt }], agent: job.agent },
+      }),
       timeoutMs,
       () => {
         log("job timeout — aborting session", { jobId: job.id, sessionId, timeoutMs });

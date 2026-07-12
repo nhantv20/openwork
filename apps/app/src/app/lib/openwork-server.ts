@@ -1149,6 +1149,8 @@ export type OpenworkScheduledJob = {
   prompt: string;
   cronExpression: string;
   timezone: string;
+  /** OpenCode agent used to run this job. Defaults to "build" server-side. */
+  agent: string;
   enabled: boolean;
   nextRunAt: number | null;
   lastRunAt: number | null;
@@ -1174,6 +1176,7 @@ export type OpenworkScheduledJobCreate = {
   prompt: string;
   cron: string;
   timezone: string;
+  agent?: string;
 };
 
 export type OpenworkScheduledJobUpdate = Partial<{
@@ -1181,8 +1184,16 @@ export type OpenworkScheduledJobUpdate = Partial<{
   prompt: string;
   cron: string;
   timezone: string;
+  agent: string;
   enabled: boolean;
 }>;
+
+/** OpenCode built-in agents surfaced in the create/edit dialog. The
+ *  server-side allowlist is authoritative; this list just drives the UI
+ *  select. New agents must be added here AND in
+ *  `apps/server/src/routes/scheduled.ts` `KNOWN_AGENTS`. */
+export const OPENWORK_SCHEDULED_AGENTS = ["build", "plan"] as const;
+export type OpenworkScheduledAgent = (typeof OPENWORK_SCHEDULED_AGENTS)[number];
 
 export function createOpenworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");

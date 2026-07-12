@@ -196,6 +196,7 @@ describe("POST /api/scheduled", () => {
       prompt: "Summarise today",
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(res.status).toBe(201);
     const body = res.body as { job: { id: string; name: string; cronExpression: string } };
@@ -215,6 +216,7 @@ describe("POST /api/scheduled", () => {
       prompt: "x",
       cron: "not a cron",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_cron");
@@ -228,6 +230,47 @@ describe("POST /api/scheduled", () => {
     });
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_body");
+  });
+
+  test("rejects unknown agent with 400 invalid_agent", async () => {
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "x",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "nope-not-an-agent",
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("invalid_agent");
+  });
+
+  test("accepts build and plan agents", async () => {
+    for (const agent of ["build", "plan"] as const) {
+      const res = await callAs("POST", "/api/scheduled", {
+        workspaceId: "ws-1",
+        name: `with-${agent}`,
+        prompt: "y",
+        cron: "0 9 * * *",
+        timezone: "Asia/Tokyo",
+        agent,
+      });
+      expect(res.status).toBe(201);
+      const job = (res.body as { job: { agent: string } }).job;
+      expect(job.agent).toBe(agent);
+    }
+  });
+
+  test("defaults agent to 'build' when omitted", async () => {
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "default-agent",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(201);
+    expect((res.body as { job: { agent: string } }).job.agent).toBe("build");
   });
 
   test("rejects unknown workspace with 400", async () => {
@@ -253,6 +296,7 @@ describe("POST /api/scheduled", () => {
       prompt: "y",
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(res.status).toBe(404);
     expect((res.body as { code: string }).code).toBe("workspace_not_found");
@@ -267,6 +311,7 @@ describe("GET /api/scheduled/:id", () => {
       prompt: "p",
       cronExpression: "*/5 * * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
       enabled: true,
       nextRunAt: null,
     });
@@ -320,7 +365,8 @@ describe("PATCH /api/scheduled/:id", () => {
       prompt: "old prompt",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     registerScheduledRoutes({
@@ -353,7 +399,8 @@ describe("PATCH /api/scheduled/:id", () => {
       prompt: "p",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     registerScheduledRoutes({
@@ -376,6 +423,62 @@ describe("PATCH /api/scheduled/:id", () => {
     const got = await db.getJob(job.id);
     expect(got?.cronExpression).toBe("0 9 * * *");
   });
+
+  test("rejects unknown agent with 400 invalid_agent", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      enabled: true,
+      nextRunAt: null,
+    });
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { agent: "nope" });
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("invalid_agent");
+  });
+
+  test("accepts switching agent to plan", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      enabled: true,
+      nextRunAt: null,
+    });
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { agent: "plan" });
+    expect(res.status).toBe(200);
+    expect((res.body as { job: { agent: string } }).job.agent).toBe("plan");
+  });
 });
 
 describe("DELETE /api/scheduled/:id", () => {
@@ -386,7 +489,8 @@ describe("DELETE /api/scheduled/:id", () => {
       prompt: "p",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     const r1 = await db.createRun({ jobId: job.id, scheduledFor: Date.now() });
@@ -424,7 +528,8 @@ describe("POST /api/scheduled/:id/run", () => {
       prompt: "hi",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     registerScheduledRoutes({
@@ -461,7 +566,8 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
       prompt: "p",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     registerScheduledRoutes({
@@ -498,7 +604,8 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
       prompt: "p",
       cronExpression: "0 9 * * *",
       timezone: "UTC",
-      enabled: true,
+      agent: "build",
+            enabled: true,
       nextRunAt: null,
     });
     registerScheduledRoutes({
@@ -534,6 +641,7 @@ describe("scheduled routes — security guards", () => {
       prompt: "p",
       cronExpression: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
       enabled: true,
       nextRunAt: null,
     });
@@ -560,6 +668,7 @@ describe("scheduled routes — security guards", () => {
       prompt: "y",
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(ensureCalled).toBe(true);
     expect(res.status).toBe(403);
@@ -589,6 +698,7 @@ describe("scheduled routes — security guards", () => {
       prompt: "y",
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(res.status).toBe(403);
     // DB should be empty.
@@ -616,6 +726,7 @@ describe("scheduled routes — security guards", () => {
       prompt: huge,
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
+      agent: "build",
     });
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_body");

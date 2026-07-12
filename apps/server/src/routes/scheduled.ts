@@ -81,6 +81,14 @@ const MAX_NAME_LENGTH = 200;
 const MAX_PROMPT_LENGTH = 64 * 1024;
 const MAX_CRON_LENGTH = 100;
 const MAX_TIMEZONE_LENGTH = 64;
+const MAX_AGENT_LENGTH = 64;
+
+/** OpenCode ships with two built-in agents. Custom agents from
+ *  `~/.config/opencode/agent/*.md` would also be accepted, but we keep
+ *  the allowlist tight to surface typos at create-time instead of
+ *  failing later inside the engine. */
+const DEFAULT_AGENT = "build";
+const KNOWN_AGENTS = new Set<string>([DEFAULT_AGENT, "plan"]);
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -166,6 +174,7 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
       prompt: job.prompt,
       cronExpression: job.cronExpression,
       timezone: job.timezone,
+      agent: job.agent,
       enabled: job.enabled,
       nextRunAt: job.nextRunAt,
       lastRunAt: job.lastRunAt,
@@ -195,6 +204,12 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     const prompt = asString(body.prompt, "prompt", MAX_PROMPT_LENGTH);
     const cronExpression = asString(body.cron, "cron", MAX_CRON_LENGTH);
     const timezone = asString(body.timezone ?? "Asia/Tokyo", "timezone", MAX_TIMEZONE_LENGTH);
+    const agent = asString(body.agent ?? DEFAULT_AGENT, "agent", MAX_AGENT_LENGTH);
+    if (!KNOWN_AGENTS.has(agent)) {
+      throw new ApiError(400, "invalid_agent", `Unknown agent '${agent}'`, {
+        allowed: Array.from(KNOWN_AGENTS),
+      });
+    }
     // Validate workspace + cron BEFORE persisting so a bad request
     // never leaves a half-written job in DB.
     await resolveWorkspace(config, workspaceId);
@@ -207,6 +222,7 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
       prompt,
       cronExpression,
       timezone,
+      agent,
       enabled: true,
       nextRunAt,
     });
@@ -267,6 +283,15 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     if (newPrompt !== undefined) patch.prompt = newPrompt;
     const newEnabled = asOptionalBoolean(body.enabled, "enabled");
     if (newEnabled !== undefined) patch.enabled = newEnabled;
+    const newAgent = asOptionalString(body.agent, "agent", MAX_AGENT_LENGTH);
+    if (newAgent !== undefined) {
+      if (!KNOWN_AGENTS.has(newAgent)) {
+        throw new ApiError(400, "invalid_agent", `Unknown agent '${newAgent}'`, {
+          allowed: Array.from(KNOWN_AGENTS),
+        });
+      }
+      patch.agent = newAgent;
+    }
 
     const updated = db.updateJob(id, patch);
     if (!updated) {

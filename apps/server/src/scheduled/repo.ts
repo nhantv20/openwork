@@ -36,6 +36,7 @@ const scheduledJobs = sqliteTable(
     prompt: text("prompt").notNull(),
     cronExpression: text("cron_expression").notNull(),
     timezone: text("timezone").notNull(),
+    agent: text("agent").notNull().default("build"),
     enabled: integer("enabled", { mode: "boolean" }).notNull(),
     nextRunAt: integer("next_run_at"),
     lastRunAt: integer("last_run_at"),
@@ -75,6 +76,7 @@ type ScheduledJobRow = {
   prompt: string;
   cronExpression: string;
   timezone: string;
+  agent: string;
   enabled: boolean;
   nextRunAt: number | null;
   lastRunAt: number | null;
@@ -102,6 +104,7 @@ function rowToScheduledJob(row: ScheduledJobRow): ScheduledJob {
     prompt: row.prompt,
     cronExpression: row.cronExpression,
     timezone: row.timezone,
+    agent: row.agent,
     enabled: row.enabled,
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
@@ -148,6 +151,7 @@ export interface ScheduledDb {
     prompt: string;
     cronExpression: string;
     timezone: string;
+    agent: string;
     enabled: boolean;
     nextRunAt: number | null;
   }): ScheduledJob;
@@ -158,6 +162,7 @@ export interface ScheduledDb {
       prompt: string;
       cronExpression: string;
       timezone: string;
+      agent: string;
       enabled: boolean;
       nextRunAt: number | null;
       lastRunAt: number | null;
@@ -212,6 +217,7 @@ async function openBunDb(path: string): Promise<ScheduledDb> {
       prompt TEXT NOT NULL,
       cron_expression TEXT NOT NULL,
       timezone TEXT NOT NULL,
+      agent TEXT NOT NULL DEFAULT 'build',
       enabled INTEGER NOT NULL,
       next_run_at INTEGER,
       last_run_at INTEGER,
@@ -220,6 +226,13 @@ async function openBunDb(path: string): Promise<ScheduledDb> {
       updated_at INTEGER NOT NULL
     )
   `);
+  // M2.1 migration: existing rows from M2 pre-agent builds don't have an
+  // `agent` column. Add it lazily and backfill with the default agent.
+  try {
+    sqlite.exec("ALTER TABLE scheduled_jobs ADD COLUMN agent TEXT NOT NULL DEFAULT 'build'");
+  } catch {
+    // Column already exists — safe to ignore.
+  }
   sqlite.run(`
     CREATE TABLE IF NOT EXISTS scheduled_job_runs (
       id TEXT PRIMARY KEY,
@@ -267,6 +280,7 @@ async function openBunDb(path: string): Promise<ScheduledDb> {
           prompt: input.prompt,
           cronExpression: input.cronExpression,
           timezone: input.timezone,
+          agent: input.agent,
           enabled: input.enabled,
           nextRunAt: input.nextRunAt,
           lastRunAt: null,
@@ -384,6 +398,7 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
       prompt TEXT NOT NULL,
       cron_expression TEXT NOT NULL,
       timezone TEXT NOT NULL,
+      agent TEXT NOT NULL DEFAULT 'build',
       enabled INTEGER NOT NULL,
       next_run_at INTEGER,
       last_run_at INTEGER,
@@ -392,6 +407,13 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
       updated_at INTEGER NOT NULL
     )
   `);
+  // M2.1 migration: existing rows from M2 pre-agent builds don't have an
+  // `agent` column. Add it lazily and backfill with the default agent.
+  try {
+    sqlite.exec("ALTER TABLE scheduled_jobs ADD COLUMN agent TEXT NOT NULL DEFAULT 'build'");
+  } catch {
+    // Column already exists — safe to ignore.
+  }
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_job_runs (
       id TEXT PRIMARY KEY,
@@ -413,17 +435,17 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
   const isRecord = (v: unknown): v is Record<string, unknown> =>
     typeof v === "object" && v !== null && !Array.isArray(v);
 
-  const selectColumns = "id, workspace_id AS workspaceId, name, prompt, cron_expression AS cronExpression, timezone, enabled, next_run_at AS nextRunAt, last_run_at AS lastRunAt, last_run_session_id AS lastRunSessionId, created_at AS createdAt, updated_at AS updatedAt";
+  const selectColumns = "id, workspace_id AS workspaceId, name, prompt, cron_expression AS cronExpression, timezone, agent, enabled, next_run_at AS nextRunAt, last_run_at AS lastRunAt, last_run_session_id AS lastRunSessionId, created_at AS createdAt, updated_at AS updatedAt";
 
   const stmtListAll = sqlite.prepare(`SELECT ${selectColumns} FROM scheduled_jobs ORDER BY created_at DESC`);
   const stmtListByWorkspace = sqlite.prepare(`SELECT ${selectColumns} FROM scheduled_jobs WHERE workspace_id = ? ORDER BY created_at DESC`);
   const stmtListEnabled = sqlite.prepare(`SELECT ${selectColumns} FROM scheduled_jobs WHERE enabled = 1`);
   const stmtGet = sqlite.prepare(`SELECT ${selectColumns} FROM scheduled_jobs WHERE id = ?`);
   const stmtInsertJob = sqlite.prepare(
-    "INSERT INTO scheduled_jobs (id, workspace_id, name, prompt, cron_expression, timezone, enabled, next_run_at, last_run_at, last_run_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
+    "INSERT INTO scheduled_jobs (id, workspace_id, name, prompt, cron_expression, timezone, agent, enabled, next_run_at, last_run_at, last_run_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
   );
   const stmtUpdateJob = sqlite.prepare(
-    "UPDATE scheduled_jobs SET name = COALESCE(?, name), prompt = COALESCE(?, prompt), cron_expression = COALESCE(?, cron_expression), timezone = COALESCE(?, timezone), enabled = COALESCE(?, enabled), next_run_at = ?, last_run_at = ?, last_run_session_id = ?, updated_at = ? WHERE id = ?",
+    "UPDATE scheduled_jobs SET name = COALESCE(?, name), prompt = COALESCE(?, prompt), cron_expression = COALESCE(?, cron_expression), timezone = COALESCE(?, timezone), agent = COALESCE(?, agent), enabled = COALESCE(?, enabled), next_run_at = ?, last_run_at = ?, last_run_session_id = ?, updated_at = ? WHERE id = ?",
   );
   const stmtDeleteJob = sqlite.prepare("DELETE FROM scheduled_jobs WHERE id = ?");
   const stmtDeleteRuns = sqlite.prepare("DELETE FROM scheduled_job_runs WHERE job_id = ?");
@@ -455,6 +477,7 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
       prompt: String(row.prompt),
       cronExpression: String(row.cronExpression),
       timezone: String(row.timezone),
+      agent: String(row.agent ?? "build"),
       enabled: Boolean(row.enabled),
       nextRunAt: row.nextRunAt == null ? null : Number(row.nextRunAt),
       lastRunAt: row.lastRunAt == null ? null : Number(row.lastRunAt),
@@ -494,6 +517,7 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
         input.prompt,
         input.cronExpression,
         input.timezone,
+        input.agent,
         input.enabled ? 1 : 0,
         input.nextRunAt,
         now,
@@ -511,6 +535,7 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
         patch.prompt ?? null,
         patch.cronExpression ?? null,
         patch.timezone ?? null,
+        patch.agent ?? null,
         patch.enabled == null ? null : patch.enabled ? 1 : 0,
         patch.nextRunAt === undefined ? existing.nextRunAt : patch.nextRunAt,
         patch.lastRunAt === undefined ? existing.lastRunAt : patch.lastRunAt,

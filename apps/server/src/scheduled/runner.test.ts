@@ -67,6 +67,7 @@ beforeEach(async () => {
     prompt: "Summarise today",
     cronExpression: "*/5 * * * *",
     timezone: "Asia/Tokyo",
+    agent: "build",
     enabled: true,
     nextRunAt: null,
   });
@@ -230,10 +231,10 @@ describe("executeScheduledJob — happy path", () => {
     expect(run.sessionId).toBe("session-xyz");
     expect(run.startedAt).not.toBeNull();
     expect(run.finishedAt).not.toBeNull();
-    expect(create).toHaveBeenCalledWith({ title: "Test job" });
+    expect(create).toHaveBeenCalledWith({ title: "Test job", agent: "build" });
     expect(prompt).toHaveBeenCalledWith({
       path: { id: "session-xyz" },
-      body: { parts: [{ type: "text", text: "Summarise today" }] },
+      body: { parts: [{ type: "text", text: "Summarise today" }], agent: "build" },
     });
     expect(abort).not.toHaveBeenCalled();
 

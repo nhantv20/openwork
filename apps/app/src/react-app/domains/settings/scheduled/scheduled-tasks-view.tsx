@@ -184,7 +184,7 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
                       {job.name}
                     </div>
                     <div className="truncate font-mono text-[11px] text-dls-secondary">
-                      {job.cronExpression} · {job.timezone}
+                      {job.cronExpression} · {job.timezone} · {job.agent}
                     </div>
                   </button>
                   <Button

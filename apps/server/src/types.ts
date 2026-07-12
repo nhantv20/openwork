@@ -323,6 +323,12 @@ export interface ScheduledJob {
   prompt: string;
   cronExpression: string;
   timezone: string;
+  /**
+   * OpenCode agent name used to run this job (e.g. `"build"`, `"plan"`).
+   * OpenCode engine treats this as the agent slot for the created session
+   * — the prompt is sent under that agent's prompt config.
+   */
+  agent: string;
   enabled: boolean;
   /** ms epoch, derived. Updated whenever the schedule changes. */
   nextRunAt: number | null;
