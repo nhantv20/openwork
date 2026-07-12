@@ -27,13 +27,26 @@ import type { ScheduledDb } from "./repo.js";
  *  full SDK. */
 export interface OpencodeJobClient {
   session: {
-    create: (input: { title: string; agent?: string }) => Promise<{ id: string } | { error: unknown; response: Response }>;
+    create: (input: { title: string; agent?: string; model?: { providerID: string; modelID: string } }) => Promise<{ id: string } | { error: unknown; response: Response }>;
     prompt: (input: {
       path: { id: string };
-      body: { parts: Array<{ type: "text"; text: string }>; agent?: string };
+      body: {
+        parts: Array<{ type: "text"; text: string }>;
+        agent?: string;
+        model?: { providerID: string; modelID: string };
+      };
     }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
     abort: (input: { path: { id: string } }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
   };
+  /**
+   * Optional — resolve the workspace's default model in the form
+   * `"providerID/modelID"`. Called once per run when the job has no
+   * explicit `model` so we don't 500 on `session.prompt` for having
+   * no model bound to the newly created session. When the helper is
+   * absent or returns null, the runner falls back to passing no model
+   * (legacy behavior).
+   */
+  getDefaultModel?: () => Promise<string | null>;
 }
 
 export interface JobRunnerDeps {
@@ -56,6 +69,26 @@ export const DEFAULT_JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Parse `"providerID/modelID"` (and optional `?variant`) into the
+ *  shape the OpenCode SDK expects. Returns null for malformed input. */
+function parseModelString(value: string): { providerID: string; modelID: string; variant?: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) return null;
+  const providerID = trimmed.slice(0, slash).trim();
+  let rest = trimmed.slice(slash + 1);
+  let variant: string | undefined;
+  const q = rest.indexOf("?");
+  if (q >= 0) {
+    variant = rest.slice(q + 1).trim() || undefined;
+    rest = rest.slice(0, q);
+  }
+  const modelID = rest.trim();
+  if (!providerID || !modelID) return null;
+  return variant ? { providerID, modelID, variant } : { providerID, modelID };
 }
 
 function extractSessionId(createResult: unknown): string | null {
@@ -116,12 +149,49 @@ export async function executeScheduledJob(
 
   const client = deps.getClient(workspace);
 
+  // Resolve the model override for this run. The job stores either a
+  // concrete `"providerID/modelID"` string or null. When null we ask
+  // the OpenCode client for the workspace default — without it the
+  // engine 500s on `session.prompt` because no model is bound to the
+  // newly created session.
+  let modelOverride: { providerID: string; modelID: string } | undefined;
+  if (job.model) {
+    const parsed = parseModelString(job.model);
+    if (!parsed) {
+      return finalizeFailed(
+        deps.db,
+        run.id,
+        now(),
+        `Invalid stored model '${job.model}' (expected 'providerID/modelID')`,
+      );
+    }
+    modelOverride = parsed;
+  } else if (client.getDefaultModel) {
+    try {
+      const def = await client.getDefaultModel();
+      const parsed = def ? parseModelString(def) : null;
+      if (parsed) {
+        modelOverride = parsed;
+        log("using workspace default model", { jobId: job.id, model: def });
+      }
+    } catch (err) {
+      log("getDefaultModel failed; proceeding without model", {
+        jobId: job.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // 1) Create a session under the job's chosen OpenCode agent. Without an
   // explicit `agent` the engine returns 500 on the first prompt because
   // it can't resolve a primary agent for the empty session.
   let sessionId: string | null = null;
   try {
-    const createResult = await client.session.create({ title: job.name, agent: job.agent });
+    const createResult = await client.session.create({
+      title: job.name,
+      agent: job.agent,
+      ...(modelOverride ? { model: modelOverride } : {}),
+    });
     sessionId = extractSessionId(createResult);
   } catch (err) {
     return finalizeFailed(deps.db, run.id, now(), `session.create threw: ${err instanceof Error ? err.message : String(err)}`);
@@ -148,7 +218,11 @@ export async function executeScheduledJob(
     promptResult = await withTimeout(
       client.session.prompt({
         path: { id: sessionId },
-        body: { parts: [{ type: "text", text: job.prompt }], agent: job.agent },
+        body: {
+          parts: [{ type: "text", text: job.prompt }],
+          agent: job.agent,
+          ...(modelOverride ? { model: modelOverride } : {}),
+        },
       }),
       timeoutMs,
       () => {

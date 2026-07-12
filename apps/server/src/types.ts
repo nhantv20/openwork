@@ -329,6 +329,14 @@ export interface ScheduledJob {
    * — the prompt is sent under that agent's prompt config.
    */
   agent: string;
+  /**
+   * Optional OpenCode model override in the form `"providerID/modelID"`
+   * (e.g. `"fpt/DeepSeek-V4-Flash"`). When `null`, the runner falls back
+   * to the workspace's default model — same as the UI does for ad-hoc
+   * sessions. Storing `null` keeps the row stable when the workspace
+   * adds new providers.
+   */
+  model: string | null;
   enabled: boolean;
   /** ms epoch, derived. Updated whenever the schedule changes. */
   nextRunAt: number | null;

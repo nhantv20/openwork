@@ -1151,6 +1151,9 @@ export type OpenworkScheduledJob = {
   timezone: string;
   /** OpenCode agent used to run this job. Defaults to "build" server-side. */
   agent: string;
+  /** OpenCode model override (`"providerID/modelID"`). `null` means
+   *  "use the workspace default" — same as ad-hoc UI sessions. */
+  model: string | null;
   enabled: boolean;
   nextRunAt: number | null;
   lastRunAt: number | null;
@@ -1177,6 +1180,7 @@ export type OpenworkScheduledJobCreate = {
   cron: string;
   timezone: string;
   agent?: string;
+  model?: string | null;
 };
 
 export type OpenworkScheduledJobUpdate = Partial<{
@@ -1185,6 +1189,7 @@ export type OpenworkScheduledJobUpdate = Partial<{
   cron: string;
   timezone: string;
   agent: string;
+  model: string | null;
   enabled: boolean;
 }>;
 
@@ -1194,6 +1199,20 @@ export type OpenworkScheduledJobUpdate = Partial<{
  *  `apps/server/src/routes/scheduled.ts` `KNOWN_AGENTS`. */
 export const OPENWORK_SCHEDULED_AGENTS = ["build", "plan"] as const;
 export type OpenworkScheduledAgent = (typeof OPENWORK_SCHEDULED_AGENTS)[number];
+
+/** A model option surfaced in the dialog. Combines the OpenCode
+ *  providerID and modelID with the human-friendly display name. */
+export type OpenworkScheduledModelOption = {
+  /** Value passed to the server (`"providerID/modelID"`). */
+  value: string;
+  /** Human-friendly display name (e.g. "DeepSeek V4 Flash"). */
+  label: string;
+  /** Optional provider label for grouping (e.g. "FPT Cloud"). */
+  providerLabel: string;
+  /** True when this option is the workspace's currently configured
+   *  default. The dialog uses this to seed its initial selection. */
+  isDefault: boolean;
+};
 
 export function createOpenworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -1311,6 +1330,15 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken, timeoutMs: timeouts.scheduledList },
       );
     },
+    listScheduledModels: (workspaceId: string) =>
+      requestJson<{
+        models: OpenworkScheduledModelOption[];
+        defaultModel: string | null;
+      }>(
+        baseUrl,
+        `/api/scheduled/models?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { token, hostToken, timeoutMs: timeouts.scheduledList },
+      ),
     getScheduledJob: (jobId: string) =>
       requestJson<{ job: OpenworkScheduledJob; runs: OpenworkScheduledRun[] }>(
         baseUrl,

@@ -13,7 +13,7 @@
  * on cron error (defense in depth).
  */
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
@@ -77,6 +77,11 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
   const [agent, setAgent] = useState<OpenworkScheduledAgent>(
     (props.initialJob?.agent as OpenworkScheduledAgent | undefined) ?? DEFAULT_AGENT,
   );
+  // `""` means "use the workspace default model" (server stores null).
+  // We keep it as a string for the <Select> binding and translate to
+  // null on submit. The server may also seed it with the workspace
+  // default once the catalog loads.
+  const [model, setModel] = useState<string>(props.initialJob?.model ?? "");
 
   // Reset local state whenever the dialog re-opens for a different job.
   useEffect(() => {
@@ -85,7 +90,23 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
     setCron(props.initialJob?.cronExpression ?? "0 9 * * *");
     setTimezone(props.initialJob?.timezone ?? DEFAULT_TIMEZONE);
     setAgent((props.initialJob?.agent as OpenworkScheduledAgent | undefined) ?? DEFAULT_AGENT);
+    setModel(props.initialJob?.model ?? "");
   }, [props.initialJob?.id, props.open]);
+
+  // Fetch the workspace's model catalog so the user can pick the
+  // right LLM for the job. Best-effort — when the engine is offline
+  // or doesn't expose providers we just show no options and the user
+  // keeps the default.
+  const modelsQuery = useQuery({
+    queryKey: ["scheduled-models", props.selectedWorkspaceId],
+    enabled: props.open && Boolean(props.openworkServerClient) && Boolean(props.selectedWorkspaceId),
+    queryFn: async () => {
+      if (!props.openworkServerClient) {
+        throw new Error("OpenWork server is not connected");
+      }
+      return props.openworkServerClient.listScheduledModels(props.selectedWorkspaceId);
+    },
+  });
 
   const cronValidation = useMemo(() => validateCron(cron, timezone), [cron, timezone]);
 
@@ -103,6 +124,10 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
           cron: cron.trim(),
           timezone,
           agent,
+          // Empty string in the UI = "use the workspace default model".
+          // The server treats `model: null` as "clear" and a string as
+          // "set", so we forward the user's pick verbatim.
+          model: model || null,
         });
         return result.job;
       }
@@ -113,6 +138,7 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
         cron: cron.trim(),
         timezone,
         agent,
+        model: model || null,
       });
       return result.job;
     },
@@ -282,6 +308,32 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
             </Select>
             <FieldDescription>
               {t("settings.scheduled_field_agent_description")}
+            </FieldDescription>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="scheduled-dialog-model">
+              {t("settings.scheduled_field_model")}
+            </FieldLabel>
+            <Select value={model} onValueChange={(value) => setModel(value ?? "")}>
+              <SelectTrigger id="scheduled-dialog-model" data-testid="scheduled-dialog-model">
+                <SelectValue placeholder={t("settings.scheduled_model_default_placeholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">
+                  {t("settings.scheduled_model_default_option")}
+                </SelectItem>
+                {(modelsQuery.data?.models ?? []).map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                    {m.providerLabel ? ` · ${m.providerLabel}` : ""}
+                    {m.isDefault ? ` · ${t("settings.scheduled_model_default_badge")}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              {t("settings.scheduled_field_model_description")}
             </FieldDescription>
           </Field>
         </div>

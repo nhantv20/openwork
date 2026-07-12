@@ -82,6 +82,7 @@ const MAX_PROMPT_LENGTH = 64 * 1024;
 const MAX_CRON_LENGTH = 100;
 const MAX_TIMEZONE_LENGTH = 64;
 const MAX_AGENT_LENGTH = 64;
+const MAX_MODEL_LENGTH = 200;
 
 /** OpenCode ships with two built-in agents. Custom agents from
  *  `~/.config/opencode/agent/*.md` would also be accepted, but we keep
@@ -175,6 +176,7 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
       cronExpression: job.cronExpression,
       timezone: job.timezone,
       agent: job.agent,
+      model: job.model,
       enabled: job.enabled,
       nextRunAt: job.nextRunAt,
       lastRunAt: job.lastRunAt,
@@ -194,6 +196,81 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     return jsonResponse({ jobs: jobs.map(jobToJson) });
   });
 
+  // GET /api/scheduled/models?workspaceId=...
+  // Returns the model list + workspace default for the create/edit dialog.
+  // Best-effort: when the OpenCode engine doesn't expose providers or
+  // errors, we still return an empty list so the UI degrades gracefully
+  // (the user just keeps the existing `null` model and the runner falls
+  // back to whatever the engine resolves at run-time).
+  addRoute(routes, "GET", "/api/scheduled/models", "client", async (ctx) => {
+    const workspaceId = ctx.url.searchParams.get("workspaceId");
+    if (!workspaceId || !workspaceId.trim()) {
+      throw new ApiError(400, "invalid_body", "workspaceId is required");
+    }
+    const workspace = await resolveWorkspace(config, workspaceId.trim());
+    const client = getOpencodeClient(workspace);
+    const models: Array<{
+      value: string;
+      label: string;
+      providerLabel: string;
+      isDefault: boolean;
+    }> = [];
+
+    let defaultModel: string | null = null;
+    if (client.getDefaultModel) {
+      try {
+        const def = await client.getDefaultModel();
+        defaultModel = def ?? null;
+      } catch {
+        defaultModel = null;
+      }
+    }
+
+    // Try to enumerate the provider catalog. We don't depend on this
+    // shape; the client may or may not expose it.
+    const sdk = client as unknown as {
+      provider?: { list?: () => Promise<unknown> };
+      config?: { providers?: () => Promise<unknown> };
+    };
+    const providerListPromise = sdk.provider?.list?.();
+    if (providerListPromise) {
+      try {
+        const result = await providerListPromise;
+        const data = isRecord(result) ? result.data : undefined;
+        const all = isRecord(data) && Array.isArray(data.all) ? data.all : [];
+        const defaultMap = isRecord(data) && isRecord(data.default) ? data.default : {};
+        for (const provider of all) {
+          if (!isRecord(provider)) continue;
+          const providerID = String(provider.id ?? "").trim();
+          if (!providerID) continue;
+          const providerName = String(provider.name ?? providerID);
+          const providerModels = isRecord(provider.models) ? provider.models : {};
+          for (const [modelID, def] of Object.entries(providerModels)) {
+            if (!modelID) continue;
+            const modelName = isRecord(def) ? String(def.name ?? modelID) : modelID;
+            const value = `${providerID}/${modelID}`;
+            const isDefault = String(defaultMap[providerID] ?? "") === modelID || defaultModel === value;
+            models.push({
+              value,
+              label: modelName,
+              providerLabel: providerName,
+              isDefault,
+            });
+          }
+        }
+      } catch {
+        // Swallow — empty list is the documented fallback.
+      }
+    }
+    // Stable sort: default first, then provider + model label.
+    models.sort((a, b) => {
+      if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+      if (a.providerLabel !== b.providerLabel) return a.providerLabel.localeCompare(b.providerLabel);
+      return a.label.localeCompare(b.label);
+    });
+    return jsonResponse({ models, defaultModel });
+  });
+
   // POST /api/scheduled
   addRoute(routes, "POST", "/api/scheduled", "client", async (ctx) => {
     ensureWritable(config);
@@ -210,6 +287,29 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
         allowed: Array.from(KNOWN_AGENTS),
       });
     }
+    // Model is optional. When omitted, the runner resolves the workspace
+    // default at run-time. Pass through `null` so DB stores SQL NULL.
+    const rawModel = body.model;
+    let model: string | null = null;
+    if (typeof rawModel === "string" && rawModel.trim().length > 0) {
+      const trimmed = rawModel.trim();
+      if (trimmed.length > MAX_MODEL_LENGTH) {
+        throw new ApiError(400, "invalid_body", `model must be at most ${MAX_MODEL_LENGTH} characters`);
+      }
+      // Validate shape — `providerID/modelID`. Existence in the provider
+      // catalog is checked at run-time so we don't break when the
+      // workspace adds a new provider after the job is saved.
+      if (!/^[^/\s]+\/[^/\s]+(?:\?[^/\s]+)?$/.test(trimmed)) {
+        throw new ApiError(
+          400,
+          "invalid_model",
+          `model must be in 'providerID/modelID' form, got '${trimmed}'`,
+        );
+      }
+      model = trimmed;
+    } else if (rawModel !== undefined && rawModel !== null) {
+      throw new ApiError(400, "invalid_body", "model must be a string or null");
+    }
     // Validate workspace + cron BEFORE persisting so a bad request
     // never leaves a half-written job in DB.
     await resolveWorkspace(config, workspaceId);
@@ -223,6 +323,7 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
       cronExpression,
       timezone,
       agent,
+      model,
       enabled: true,
       nextRunAt,
     });
@@ -291,6 +392,35 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
         });
       }
       patch.agent = newAgent;
+    }
+    // Model is special: it accepts `null` to clear the override, an
+    // omitted key to leave the stored value, or a `"providerID/modelID"`
+    // string to set it. We can't reuse `asOptionalString` because that
+    // conflates "missing" with "null".
+    if (Object.prototype.hasOwnProperty.call(body, "model")) {
+      const raw = body.model;
+      if (raw === null) {
+        patch.model = null;
+      } else if (typeof raw === "string") {
+        const trimmed = raw.trim();
+        if (trimmed.length === 0) {
+          patch.model = null;
+        } else {
+          if (trimmed.length > MAX_MODEL_LENGTH) {
+            throw new ApiError(400, "invalid_body", `model must be at most ${MAX_MODEL_LENGTH} characters`);
+          }
+          if (!/^[^/\s]+\/[^/\s]+(?:\?[^/\s]+)?$/.test(trimmed)) {
+            throw new ApiError(
+              400,
+              "invalid_model",
+              `model must be in 'providerID/modelID' form, got '${trimmed}'`,
+            );
+          }
+          patch.model = trimmed;
+        }
+      } else {
+        throw new ApiError(400, "invalid_body", "model must be a string or null");
+      }
     }
 
     const updated = db.updateJob(id, patch);

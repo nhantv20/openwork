@@ -64,6 +64,7 @@ function makeJob(overrides: Partial<ScheduledJob> = {}): ScheduledJob {
     cronExpression: "0 9 * * *",
     timezone: "Asia/Tokyo",
     agent: "build",
+    model: null,
     enabled: true,
     nextRunAt: null,
     lastRunAt: null,
@@ -82,6 +83,7 @@ async function createAndPersist(job: ScheduledJob): Promise<ScheduledJob> {
     cronExpression: job.cronExpression,
     timezone: job.timezone,
     agent: job.agent,
+    model: job.model,
     enabled: job.enabled,
     nextRunAt: job.nextRunAt,
   });

@@ -926,6 +926,29 @@ function createWorkspaceOpencodeClient(config: ServerConfig, workspace: Workspac
   });
 }
 
+/** Wrap the raw OpenCode SDK client into the structural
+ *  `OpencodeJobClient` the runner needs. Adds a `getDefaultModel()`
+ *  helper that asks the engine for the workspace's default
+ *  `providerID/modelID` — used when a job has no explicit model
+ *  override, so the engine doesn't 500 on `session.prompt` for a
+ *  session with no model bound. */
+function wrapOpencodeJobClient(client: ReturnType<typeof createWorkspaceOpencodeClient>): OpencodeJobClient {
+  return {
+    session: client.session,
+    getDefaultModel: async () => {
+      try {
+        const result = await client.config.get();
+        const data = isRecord(result) ? result.data : undefined;
+        if (!isRecord(data)) return null;
+        const model = data.model;
+        return typeof model === "string" && model.trim() ? model.trim() : null;
+      } catch {
+        return null;
+      }
+    },
+  } as unknown as OpencodeJobClient;
+}
+
 function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
   if (result.data != null) {
     return result.data;
@@ -1453,7 +1476,8 @@ function createRoutes(
     parseOptionalPositiveInteger,
     readJsonBody,
     resolveWorkspace,
-    getOpencodeClient: (workspace) => createWorkspaceOpencodeClient(config, workspace) as unknown as OpencodeJobClient,
+    getOpencodeClient: (workspace) =>
+      wrapOpencodeJobClient(createWorkspaceOpencodeClient(config, workspace)),
     ensureWritable,
     requireClientScope,
   });

@@ -35,6 +35,7 @@ const okClient: OpencodeJobClient = {
     prompt: async () => ({ data: {}, response: new Response() }),
     abort: async () => ({ data: {}, response: new Response() }),
   },
+  getDefaultModel: async () => "fpt/DeepSeek-V4-Flash",
 };
 const stubClient = (): OpencodeJobClient => okClient;
 
@@ -197,6 +198,7 @@ describe("POST /api/scheduled", () => {
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(res.status).toBe(201);
     const body = res.body as { job: { id: string; name: string; cronExpression: string } };
@@ -217,6 +219,7 @@ describe("POST /api/scheduled", () => {
       cron: "not a cron",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_cron");
@@ -273,6 +276,102 @@ describe("POST /api/scheduled", () => {
     expect((res.body as { job: { agent: string } }).job.agent).toBe("build");
   });
 
+  test("accepts model override in 'providerID/modelID' form", async () => {
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "with-model",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      model: "fpt/DeepSeek-V4-Flash",
+    });
+    expect(res.status).toBe(201);
+    expect((res.body as { job: { model: string | null } }).job.model).toBe("fpt/DeepSeek-V4-Flash");
+  });
+
+  test("defaults model to null when omitted", async () => {
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "no-model",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(201);
+    expect((res.body as { job: { model: string | null } }).job.model).toBeNull();
+  });
+
+  test("rejects malformed model with 400 invalid_model", async () => {
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "bad-model",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      model: "no-slash-here",
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("invalid_model");
+  });
+
+  test("GET /api/scheduled/models returns the workspace catalog", async () => {
+    // Stub the client with a provider.list implementation.
+    routes = [];
+    const providerClient: OpencodeJobClient = {
+      ...okClient,
+      getDefaultModel: async () => "fpt/DeepSeek-V4-Flash",
+    };
+    (providerClient as unknown as { provider: { list: () => Promise<unknown> } }).provider = {
+      list: async () => ({
+        data: {
+          all: [
+            {
+              id: "fpt",
+              name: "FPT Cloud",
+              models: {
+                "DeepSeek-V4-Flash": { name: "DeepSeek V4 Flash" },
+                "Qwen3.6-27B": { name: "Qwen 3.6 27B" },
+              },
+            },
+            {
+              id: "opencode",
+              name: "OpenCode Free",
+              models: {
+                "deepseek-v4-flash-free": { name: "DeepSeek (free)" },
+              },
+            },
+          ],
+          default: { fpt: "DeepSeek-V4-Flash" },
+          connected: ["fpt", "opencode"],
+        },
+        response: new Response(),
+      }),
+    };
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: () => providerClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("GET", "/api/scheduled/models?workspaceId=ws-1");
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      models: Array<{ value: string; isDefault: boolean }>;
+      defaultModel: string | null;
+    };
+    expect(body.defaultModel).toBe("fpt/DeepSeek-V4-Flash");
+    expect(body.models).toHaveLength(3);
+    const deepseek = body.models.find((m) => m.value === "fpt/DeepSeek-V4-Flash");
+    expect(deepseek?.isDefault).toBe(true);
+  });
+
   test("rejects unknown workspace with 400", async () => {
     // Override resolver to throw.
     routes = [];
@@ -297,6 +396,7 @@ describe("POST /api/scheduled", () => {
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(res.status).toBe(404);
     expect((res.body as { code: string }).code).toBe("workspace_not_found");
@@ -312,6 +412,7 @@ describe("GET /api/scheduled/:id", () => {
       cronExpression: "*/5 * * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
       enabled: true,
       nextRunAt: null,
     });
@@ -366,6 +467,7 @@ describe("PATCH /api/scheduled/:id", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -400,6 +502,7 @@ describe("PATCH /api/scheduled/:id", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -432,6 +535,7 @@ describe("PATCH /api/scheduled/:id", () => {
       cronExpression: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
       enabled: true,
       nextRunAt: null,
     });
@@ -460,6 +564,7 @@ describe("PATCH /api/scheduled/:id", () => {
       cronExpression: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
       enabled: true,
       nextRunAt: null,
     });
@@ -479,6 +584,93 @@ describe("PATCH /api/scheduled/:id", () => {
     expect(res.status).toBe(200);
     expect((res.body as { job: { agent: string } }).job.agent).toBe("plan");
   });
+
+  test("PATCH sets model override", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      model: null,
+      enabled: true,
+      nextRunAt: null,
+    });
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { model: "opencode/deepseek-v4-flash-free" });
+    expect(res.status).toBe(200);
+    expect((res.body as { job: { model: string | null } }).job.model).toBe("opencode/deepseek-v4-flash-free");
+  });
+
+  test("PATCH model=null clears the override", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      model: "fpt/DeepSeek-V4-Flash",
+      enabled: true,
+      nextRunAt: null,
+    });
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { model: null });
+    expect(res.status).toBe(200);
+    expect((res.body as { job: { model: string | null } }).job.model).toBeNull();
+  });
+
+  test("PATCH rejects malformed model", async () => {
+    const job = await db.createJob({
+      workspaceId: "ws-1",
+      name: "Test",
+      prompt: "p",
+      cronExpression: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+      agent: "build",
+      model: null,
+      enabled: true,
+      nextRunAt: null,
+    });
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("PATCH", `/api/scheduled/${job.id}`, { model: "no-slash" });
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("invalid_model");
+  });
 });
 
 describe("DELETE /api/scheduled/:id", () => {
@@ -490,6 +682,7 @@ describe("DELETE /api/scheduled/:id", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -529,6 +722,7 @@ describe("POST /api/scheduled/:id/run", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -567,6 +761,7 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -605,6 +800,7 @@ describe("GET /api/scheduled/:id/runs?limit=", () => {
       cronExpression: "0 9 * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -642,6 +838,7 @@ describe("scheduled routes — security guards", () => {
       cronExpression: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
       enabled: true,
       nextRunAt: null,
     });
@@ -669,6 +866,7 @@ describe("scheduled routes — security guards", () => {
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(ensureCalled).toBe(true);
     expect(res.status).toBe(403);
@@ -699,6 +897,7 @@ describe("scheduled routes — security guards", () => {
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(res.status).toBe(403);
     // DB should be empty.
@@ -727,6 +926,7 @@ describe("scheduled routes — security guards", () => {
       cron: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
     });
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_body");

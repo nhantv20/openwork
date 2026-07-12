@@ -68,6 +68,7 @@ beforeEach(async () => {
     cronExpression: "*/5 * * * *",
     timezone: "Asia/Tokyo",
     agent: "build",
+    model: null,
     enabled: true,
     nextRunAt: null,
   });
@@ -246,6 +247,82 @@ describe("executeScheduledJob — happy path", () => {
     expect(jobAfter?.lastRunAt).not.toBeNull();
     expect(run.finishedAt).not.toBeNull();
     expect(Math.abs((jobAfter?.lastRunAt ?? 0) - (run.finishedAt ?? 0))).toBeLessThan(5);
+  });
+
+  test("forwards explicit model override to session.create and session.prompt", async () => {
+    const { client, create, prompt } = makeClient();
+    const job = await db.createJob({
+      workspaceId: createdJob.workspaceId,
+      name: "modeled",
+      prompt: "hello",
+      cronExpression: createdJob.cronExpression,
+      timezone: createdJob.timezone,
+      agent: "build",
+      model: "fpt/DeepSeek-V4-Flash",
+      enabled: true,
+      nextRunAt: null,
+    });
+    await executeScheduledJob(job, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(create).toHaveBeenCalledWith({
+      title: "modeled",
+      agent: "build",
+      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+    });
+    expect(prompt).toHaveBeenCalledWith({
+      path: { id: "session-xyz" },
+      body: {
+        parts: [{ type: "text", text: "hello" }],
+        agent: "build",
+        model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+      },
+    });
+  });
+
+  test("falls back to client.getDefaultModel() when job.model is null", async () => {
+    const { client, create, prompt } = makeClient();
+    client.getDefaultModel = async () => "fpt/DeepSeek-V4-Flash";
+    await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(create).toHaveBeenCalledWith({
+      title: "Test job",
+      agent: "build",
+      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+    });
+    expect(prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
+        }),
+      }),
+    );
+  });
+
+  test("fails the run when the stored model is malformed", async () => {
+    const { client, create, prompt } = makeClient();
+    const job = await db.createJob({
+      workspaceId: createdJob.workspaceId,
+      name: "bad-model",
+      prompt: "hello",
+      cronExpression: createdJob.cronExpression,
+      timezone: createdJob.timezone,
+      agent: "build",
+      model: "not-a-valid-model",
+      enabled: true,
+      nextRunAt: null,
+    });
+    const run = await executeScheduledJob(job, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Invalid stored model");
+    expect(create).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
   });
 });
 

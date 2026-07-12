@@ -89,6 +89,7 @@ describe("scheduledDb — jobs", () => {
       cronExpression: "0 9 * * *",
       timezone: "Asia/Tokyo",
       agent: "build",
+      model: null,
       enabled: true,
       nextRunAt: Date.now() + 60_000,
     });
@@ -120,6 +121,7 @@ describe("scheduledDb — jobs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -137,6 +139,7 @@ describe("scheduledDb — jobs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -172,6 +175,7 @@ describe("scheduledDb — jobs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -192,16 +196,16 @@ describe("scheduledDb — jobs", () => {
   });
 
   test("listJobs returns all jobs across workspaces when no filter", async () => {
-    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: true, nextRunAt: null });
-    await db.createJob({ workspaceId: "ws-2", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: true, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: true, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-2", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: true, nextRunAt: null });
 
     const all = await db.listJobs();
     expect(all).toHaveLength(2);
   });
 
   test("listJobs filters by workspaceId", async () => {
-    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: true, nextRunAt: null });
-    await db.createJob({ workspaceId: "ws-2", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: true, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: true, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-2", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: true, nextRunAt: null });
 
     const ws1 = await db.listJobs("ws-1");
     expect(ws1).toHaveLength(1);
@@ -209,8 +213,8 @@ describe("scheduledDb — jobs", () => {
   });
 
   test("listEnabledJobs returns only enabled rows", async () => {
-    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: true, nextRunAt: null });
-    await db.createJob({ workspaceId: "ws-1", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", enabled: false, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-1", name: "A", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: true, nextRunAt: null });
+    await db.createJob({ workspaceId: "ws-1", name: "B", prompt: "p", cronExpression: "* * * * *", timezone: "UTC", agent: "build", model: null, enabled: false, nextRunAt: null });
 
     const enabled = await db.listEnabledJobs();
     expect(enabled).toHaveLength(1);
@@ -227,6 +231,7 @@ describe("scheduledDb — runs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -250,6 +255,7 @@ describe("scheduledDb — runs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -280,6 +286,7 @@ describe("scheduledDb — runs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -303,6 +310,7 @@ describe("scheduledDb — runs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
@@ -335,6 +343,7 @@ describe("scheduledDb — runs", () => {
       cronExpression: "* * * * *",
       timezone: "UTC",
       agent: "build",
+      model: null,
             enabled: true,
       nextRunAt: null,
     });
