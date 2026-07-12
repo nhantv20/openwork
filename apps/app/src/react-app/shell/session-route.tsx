@@ -1858,6 +1858,21 @@ export function SessionRoute() {
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: handleOpenCreateWorkspace,
         onOpenSessionSearch: () => setSessionSearchOpen(true),
+        onOpenSkills: () => {
+          toast(t("workspace_list.quick_actions_skills_coming_soon"), {
+            description: t("workspace_list.quick_actions_coming_soon_hint"),
+          });
+        },
+        onOpenScheduled: () => {
+          toast(t("workspace_list.quick_actions_scheduled_coming_soon"), {
+            description: t("workspace_list.quick_actions_coming_soon_hint"),
+          });
+        },
+        onOpenConnectMobile: () => {
+          toast(t("workspace_list.quick_actions_connect_mobile_coming_soon"), {
+            description: t("workspace_list.quick_actions_coming_soon_hint"),
+          });
+        },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
       surface={surfaceProps}

@@ -26,6 +26,12 @@ export type SidebarContextValue = {
   onTestWorkspaceConnection: (workspaceId: string) => Promise<boolean> | boolean | void;
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
+  /** Quick actions group: navigate to Settings → Skills/Extensions. */
+  onOpenSkills?: () => void;
+  /** Quick actions group: navigate to Settings → Scheduled tasks. */
+  onOpenScheduled?: () => void;
+  /** Quick actions group: navigate to Settings → Remote access / Connect Mobile. */
+  onOpenConnectMobile?: () => void;
   expandWorkspace: (workspaceId: string) => void;
   toggleWorkspaceExpanded: (workspaceId: string) => void;
   toggleSessionExpanded: (sessionId: string) => void;

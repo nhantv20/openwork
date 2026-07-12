@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, PanelRight, Settings2, X, Zap } from "lucide-react";
+import { Columns2, Globe, PanelRight, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -120,6 +120,12 @@ export type SessionPageSidebarProps = {
   onOpenCreateWorkspace: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
+  /** Quick actions group: navigate to Settings → Skills/Extensions. */
+  onOpenSkills?: () => void;
+  /** Quick actions group: navigate to Settings → Scheduled tasks. */
+  onOpenScheduled?: () => void;
+  /** Quick actions group: navigate to Settings → Remote access / Connect Mobile. */
+  onOpenConnectMobile?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
 };
 
@@ -538,6 +544,29 @@ export function SessionPage(props: SessionPageProps) {
     setCurrentSidePanel("files");
   }, [setCurrentSidePanel, sidePanelOpen]);
 
+  // L5 fix: dedicated Browser rail button. Phase 6.9 moved Browser
+  // out of the right-panel header (Review tab took its slot) and into
+  // the more menu — but that's one click too many for an action users
+  // hit often. The rail gives Browser a permanent home without
+  // crowding the header.
+  const openBrowserRailButton = useCallback(() => {
+    if (!isElectronRuntime()) {
+      // Browser is only meaningful in Electron. Fall back to opening
+      // the regular panel so the user sees something happen.
+      setCurrentSidePanel("files");
+      return;
+    }
+    // Ensure there's at least one browser tab so the panel isn't
+    // empty on first click.
+    const hasBrowserTab = usePanelTabStore
+      .getState()
+      .sessions[props.selectedSessionId ?? ""]?.tabs.some((tab) => tab.type === "browser");
+    if (!hasBrowserTab && typeof window !== "undefined") {
+      void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
+    }
+    setCurrentSidePanel("panel");
+  }, [setCurrentSidePanel, props.selectedSessionId]);
+
   // Right-panel keyboard shortcuts (Cmd+Opt+1/2/3 on Mac, Ctrl+Alt+1/2/3 elsewhere).
   // Cmd+. closes the panel. Skipped while typing in an input/textarea/contentEditable
   // so the shortcuts don't hijack normal typing.
@@ -922,6 +951,9 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          onOpenSkills={props.sidebar.onOpenSkills}
+          onOpenScheduled={props.sidebar.onOpenScheduled}
+          onOpenConnectMobile={props.sidebar.onOpenConnectMobile}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
@@ -1339,10 +1371,10 @@ export function SessionPage(props: SessionPageProps) {
             ) : null}
           </ResizablePanelGroup>
           <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
-            {/* Single rail button opens/closes the right panel. Per-mode
-                (Files / Preview / Browser) is handled by the header inside
-                <RightPanel />. Voice and Extensions are kept on the rail
-                because they have no toggle in the header. */}
+            {/* Right-panel rail: a single PanelRight button toggles the
+                Files / Preview / Review tabs. Browser lives on its own
+                rail button (L5) because the Review tab displaced it
+                from the right-panel header. */}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -1356,6 +1388,20 @@ export function SessionPage(props: SessionPageProps) {
               aria-pressed={sidePanelOpen}
             >
               <PanelRight size={17} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                activeSidePanel === "panel" && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+              )}
+              onClick={openBrowserRailButton}
+              title="Open Browser"
+              aria-label="Open Browser"
+              aria-pressed={activeSidePanel === "panel"}
+            >
+              <Globe size={17} />
             </Button>
             {/* Voice + Extensions now live in the right-panel header menu. */}
             {voiceExtensionEnabled ? null : null}

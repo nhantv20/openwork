@@ -12,7 +12,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Search,
   Share2,
   Trash2,
   RefreshCw,
@@ -34,7 +33,6 @@ import {
   isRemoteConnectionErrorMessage,
   getWorkspaceTaskLoadErrorDisplay,
   isRemoteConnectionWorkspace,
-  isMacPlatform,
   isWindowsPlatform,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
@@ -43,7 +41,6 @@ import {
   Sidebar,
   SidebarFooter,
   SidebarGroup,
-  SidebarHeader,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
@@ -82,6 +79,7 @@ import { Button } from "@/components/ui/button";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import type { SidebarContextValue } from "./app-sidebar-provider";
+import { QuickActionsGroup } from "./quick-actions-group";
 import {
   MAX_SESSIONS_PREVIEW,
   buildSessionTreeState,
@@ -587,6 +585,12 @@ export type AppSidebarProps = {
   onOpenCreateWorkspace: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
+  /** Quick actions group: navigate to Settings → Skills/Extensions. */
+  onOpenSkills?: () => void;
+  /** Quick actions group: navigate to Settings → Scheduled tasks. */
+  onOpenScheduled?: () => void;
+  /** Quick actions group: navigate to Settings → Remote access / Connect Mobile. */
+  onOpenConnectMobile?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -722,6 +726,9 @@ export function AppSidebar(props: AppSidebarProps) {
     onTestWorkspaceConnection: props.onTestWorkspaceConnection,
     onEditWorkspaceConnection: props.onEditWorkspaceConnection,
     onForgetWorkspace: props.onForgetWorkspace,
+    onOpenSkills: props.onOpenSkills,
+    onOpenScheduled: props.onOpenScheduled,
+    onOpenConnectMobile: props.onOpenConnectMobile,
     expandWorkspace,
     toggleWorkspaceExpanded,
     toggleSessionExpanded,
@@ -751,23 +758,16 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         ) : null}
         {props.onOpenSessionSearch ? (
-          <SidebarHeader className="pb-0">
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={props.onOpenSessionSearch}
-                  aria-keyshortcuts={isMacPlatform() ? "Meta+Shift+F" : "Control+Shift+F"}
-                  className="text-sidebar-foreground/70"
-                >
-                  <Search className="size-4" />
-                  <span className="flex-1 truncate">{t("workspace_list.search_sessions")}</span>
-                  <kbd className="ml-auto font-sans text-[11px] tracking-wide text-sidebar-foreground/50">
-                    {isMacPlatform() ? "⌘⇧F" : "Ctrl+Shift+F"}
-                  </kbd>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarHeader>
+          <QuickActionsGroup
+            selectedWorkspaceId={props.selectedWorkspaceId}
+            newTaskDisabled={props.newTaskDisabled}
+            onCreateTask={() => props.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+            onOpenCreateWorkspace={props.onOpenCreateWorkspace}
+            onOpenSearch={props.onOpenSessionSearch}
+            onOpenSkills={props.onOpenSkills}
+            onOpenScheduled={props.onOpenScheduled}
+            onOpenConnectMobile={props.onOpenConnectMobile}
+          />
         ) : null}
         <LazyMotion features={domMax}>
           <m.div
