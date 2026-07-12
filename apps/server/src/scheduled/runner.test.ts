@@ -88,7 +88,7 @@ function makeClient(overrides: Partial<OpencodeJobClient> = {}): {
   prompt: ReturnType<typeof vi.fn>;
   abort: ReturnType<typeof vi.fn>;
 } {
-  const create = vi.fn(async (_input: { title: string }) => ({ id: "session-xyz" }));
+  const create = vi.fn(async (_input: { title: string }) => ({ data: { id: "session-xyz" }, response: new Response() }));
   const prompt = vi.fn(async (_input: { path: { id: string }; body: { parts: Array<{ type: "text"; text: string }> } }) => ({
     data: { ok: true },
     response: new Response(),
@@ -162,13 +162,32 @@ describe("executeScheduledJob — failure paths", () => {
 
   test("marks failed when session.create returns no id", async () => {
     const { client, create } = makeClient();
-    (create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: "" });
+    // SDK v2 shape with empty id inside data.
+    (create as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: { id: "" }, response: new Response() });
     const run = await executeScheduledJob(createdJob, Date.now(), {
       ...baseDeps(),
       getClient: () => client,
     });
     expect(run.status).toBe("failed");
     expect(run.error).toContain("no id");
+  });
+
+  test("accepts both top-level id and SDK v2 { data: { id } } shape", async () => {
+    // Regression: the runner used to read only `createResult.id`. The real
+    // OpenCode SDK v2 returns `{ data: { id }, error, response }`, which
+    // silently dropped every scheduled run. Verify both shapes are accepted.
+    const { client, create, prompt } = makeClient();
+    create.mockResolvedValueOnce({
+      data: { id: "sdk-shape-id" },
+      response: new Response(),
+    } as never);
+    const run = await executeScheduledJob(createdJob, Date.now(), {
+      ...baseDeps(),
+      getClient: () => client,
+    });
+    expect(run.status).toBe("success");
+    expect(run.sessionId).toBe("sdk-shape-id");
+    expect(prompt).toHaveBeenCalled();
   });
 
   test("marks failed when session.prompt throws", async () => {

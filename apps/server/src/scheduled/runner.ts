@@ -59,11 +59,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function extractSessionId(createResult: unknown): string | null {
-  if (!isRecord(createResult)) return null;
-  const id = createResult.id;
-  if (typeof id !== "string") return null;
-  const trimmed = id.trim();
-  return trimmed || null;
+  // The OpenCode SDK v2 returns `{ data, error, response }`. Some server
+  // surfaces (e.g. mocks in tests) also unwrap the result. Accept both
+  // shapes so we don't silently drop a freshly created session id.
+  const candidates: unknown[] = isRecord(createResult) ? [createResult, createResult.data] : [];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) continue;
+    const id = candidate.id;
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
 }
 
 /** Public entry — wired by server.ts. The `Scheduler` calls this from
