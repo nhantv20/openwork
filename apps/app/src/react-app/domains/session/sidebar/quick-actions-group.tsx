@@ -131,13 +131,6 @@ export function QuickActionsGroup(props: QuickActionsGroupProps) {
               >
                 <CalendarClock className="size-4" />
                 <span className="flex-1 truncate">{t("workspace_list.quick_actions_scheduled")}</span>
-                <span
-                  className="ml-auto shrink-0 whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-sidebar-foreground/40"
-                  data-testid="quick-action-coming-soon"
-                  title={t("workspace_list.quick_actions_coming_soon_hint")}
-                >
-                  {t("workspace_list.quick_actions_coming_soon")}
-                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ) : null}

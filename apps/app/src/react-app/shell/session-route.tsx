@@ -1864,9 +1864,13 @@ export function SessionRoute() {
           });
         },
         onOpenScheduled: () => {
-          toast(t("workspace_list.quick_actions_scheduled_coming_soon"), {
-            description: t("workspace_list.quick_actions_coming_soon_hint"),
-          });
+          if (!sidebarActiveWorkspaceId) {
+            toast(t("workspace_list.quick_actions_coming_soon_hint"), {
+              description: t("workspace_list.quick_actions_coming_soon"),
+            });
+            return;
+          }
+          handleOpenSettings("/settings/scheduled");
         },
         onOpenConnectMobile: () => {
           toast(t("workspace_list.quick_actions_connect_mobile_coming_soon"), {
