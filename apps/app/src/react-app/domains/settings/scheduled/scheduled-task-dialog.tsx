@@ -192,21 +192,19 @@ export function ScheduledTaskDialog(props: ScheduledTaskDialogProps) {
               className="font-mono"
               data-testid="scheduled-dialog-cron"
             />
-            <FieldDescription>
-              <div className="flex flex-wrap gap-1.5">
-                {CRON_CHIPS.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => setCron(chip.expression)}
-                    className="rounded-full border border-dls-border bg-dls-surface px-2.5 py-0.5 text-[11px] text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
-                    data-testid={`scheduled-chip-${chip.id}`}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            </FieldDescription>
+            <div className="flex flex-wrap gap-1.5">
+              {CRON_CHIPS.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setCron(chip.expression)}
+                  className="rounded-full border border-dls-border bg-dls-surface px-2.5 py-0.5 text-[11px] text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                  data-testid={`scheduled-chip-${chip.id}`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
             {cronValidation.ok ? (
               <ul
                 className="mt-2 space-y-0.5 text-[11px] text-dls-secondary"
