@@ -1970,6 +1970,43 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken },
       );
     },
+    // Phase 6.6: Git diff integration. The server returns a typed
+    // `code` field on 4xx responses (not_git_repo | file_untracked |
+    // invalid_ref | ref_not_found | invalid_ref_pair) so the UI can
+    // pick an empty state without parsing the human message.
+    getGitStatus: (workspaceId: string, path: string) =>
+      requestJson<{
+        isGitRepo: boolean;
+        currentBranch: string | null;
+        isTracked: boolean;
+        isStaged: boolean;
+        isModified: boolean;
+        hasUncommittedChanges: boolean;
+      }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/git/status?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
+    getGitDiff: (workspaceId: string, opts: { path: string; from: string; to: string }) => {
+      const params = new URLSearchParams({
+        path: opts.path,
+        from: opts.from,
+        to: opts.to,
+      });
+      return requestJson<{
+        diff: string;
+        isBinary: boolean;
+        truncated: boolean;
+        binaryMessage: string | null;
+        fromMeta: { ref: string };
+        toMeta: { ref: string };
+        fileUntracked?: boolean;
+      }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/git/diff?${params.toString()}`,
+        { token, hostToken },
+      );
+    },
   };
 }
 

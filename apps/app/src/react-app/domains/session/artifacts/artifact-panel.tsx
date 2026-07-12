@@ -18,6 +18,8 @@ import { DiffViewer } from "./viewers/diff-viewer";
 import { DocumentViewer } from "./viewers/document-viewer";
 import { SlidesViewer } from "./viewers/slides-viewer";
 import { FileHistoryPanel } from "./file-history-panel";
+import { GitReviewTab } from "./git-review-tab";
+import { useGitStatus } from "./hooks/use-git-status";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -119,6 +121,12 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   // FileHistoryPanel mount (which keeps the "All changes" tab and the
   // timeline state aligned).
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Phase 6.6: view-mode tabs in the artifact body. Local state because
+  // it's per-file ephemeral UI (resets when the user switches to a
+  // different file). The popover History button still works as a
+  // quick-access — it opens the History tab without routing through
+  // the strip first.
+  const [activeTab, setActiveTab] = useState<"preview" | "review" | "history">("preview");
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
@@ -240,7 +248,27 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   useEffect(() => {
     setEditing(false);
     setDraft("");
+    // Phase 6.6: switch back to Preview when the user navigates to a
+    // different file so a previous file's Review/History tab state
+    // doesn't bleed across files.
+    setActiveTab("preview");
   }, [target.id, workspaceId]);
+
+  // Phase 6.6: gate the Review tab on whether the workspace is a git
+  // repo. We deliberately do NOT show the tab if the answer is
+  // negative — the user gets a cleaner strip and the popover History
+  // shortcut still works. Cached for 5 minutes; if the user runs
+  // `git init` in a terminal the next visit will pick it up.
+  // Status is fetched via a shared hook so `GitReviewTab` (which mounts
+  // when the user clicks the tab) reuses the same cache entry instead
+  // of issuing a duplicate request.
+  const { data: gitStatus } = useGitStatus({
+    client,
+    workspaceId,
+    filePath: target.kind === "file" ? target.value : null,
+    enabled: target.kind === "file" && !isRemoteWorkspace,
+  });
+  const showReviewTab = gitStatus?.isGitRepo === true;
 
   useEffect(() => {
     if (data?.kind === "text") {
@@ -571,8 +599,86 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           </div>
         </div>
       </div>
+      {/* Phase 6.6: view-mode tab strip. Renders below the file header,
+          above the body. Review tab is hidden when the workspace is not
+          a git repo so the strip stays clean. Switching tabs does NOT
+          unmount the preview tree (preserves code editor scroll, lazy
+          loaders, etc.) — only the body content swaps. */}
+      {target.kind === "file" ? (
+        <div className="shrink-0 border-b border-border bg-background/40" data-testid="artifact-tab-strip">
+          <div className="flex h-9 items-center gap-1 px-4 text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab("preview")}
+              data-testid="artifact-tab-preview"
+              className={
+                activeTab === "preview"
+                  ? "rounded-md bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+                  : "rounded-md px-2.5 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }
+            >
+              Preview
+            </button>
+            {showReviewTab ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab("review")}
+                data-testid="artifact-tab-review"
+                className={
+                  activeTab === "review"
+                    ? "rounded-md bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+                    : "rounded-md px-2.5 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                }
+              >
+                Review
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setActiveTab("history")}
+              data-testid="artifact-tab-history"
+              className={
+                activeTab === "history"
+                  ? "rounded-md bg-accent px-2.5 py-1 font-medium text-accent-foreground"
+                  : "rounded-md px-2.5 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }
+            >
+              History
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
+        {/* Phase 6.6: when the user picked a non-Preview tab, render that
+            view instead of the preview. The preview tree stays mounted
+            underneath (lazy modules, scroll position) so switching back
+            is instant. */}
+        {activeTab === "review" && target.kind === "file" && showReviewTab ? (
+          <GitReviewTab
+            client={client}
+            workspaceId={workspaceId}
+            filePath={target.value}
+          />
+        ) : activeTab === "history" && target.kind === "file" ? (
+          <FileHistoryPanel
+            client={client}
+            workspaceId={workspaceId}
+            filePath={target.value}
+            currentContent={data?.kind === "text" ? data.data : undefined}
+            onSelectFile={(path) => {
+              const fileName = path.split("/").pop() ?? path;
+              const preview = classifyOpenTarget(path, "file");
+              const newTab: ArtifactPanelTab = {
+                id: `artifact_${path}`,
+                type: "artifact",
+                label: fileName,
+                preview,
+              };
+              usePanelTabStore.getState().openTab(sessionId, newTab);
+              usePanelTabStore.getState().selectTab(sessionId, newTab.id);
+            }}
+          />
+        ) : isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />

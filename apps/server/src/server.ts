@@ -62,6 +62,7 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { addHistoryRoutes } from "./routes/history.js";
+import { addGitRoutes } from "./routes/git.js";
 import { addDevHistoryRoutes } from "./dev/history-debug-handler.js";
 import {
   mergeOpencodeConfigs,
@@ -1371,6 +1372,15 @@ function createRoutes(
     jsonResponse,
     readJsonBody,
     ensureWritable,
+    resolveWorkspace,
+  });
+
+  // Phase 6.6: Git diff integration. No body parsing needed (read-only
+  // status + diff endpoints).
+  addGitRoutes({
+    routes,
+    config,
+    jsonResponse,
     resolveWorkspace,
   });
 
