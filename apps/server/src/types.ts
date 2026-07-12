@@ -250,6 +250,17 @@ export interface AuditEntry {
  */
 export type FileSnapshotTrigger = "auto" | "manual" | "agent";
 
+/**
+ * Approval status for agent-triggered snapshots. Only meaningful when
+ * `trigger === "agent"`. Undefined for legacy rows pre-Phase 6.9 (the
+ * approval workflow) and for non-agent triggers.
+ *
+ *   pending  — AI just edited the file; user has not yet approved or rejected
+ *   approved — user accepted; file is now part of the user's working tree
+ *   rejected — user rejected; file content was restored to `parentSnapshotId`
+ */
+export type FileSnapshotStatus = "pending" | "approved" | "rejected";
+
 export interface FileSnapshot {
   id: string;
   workspaceId: string;
@@ -262,4 +273,79 @@ export interface FileSnapshot {
   trigger: FileSnapshotTrigger;
   /** Optional `mtimeMs:size` revision from `file-sessions.ts` for cross-referencing. */
   revision: string | null;
+  /**
+   * Approval status. Only set when `trigger === "agent"`. Older rows
+   * (pre-Phase 6.9) and non-agent rows read back as `undefined`.
+   */
+  status?: FileSnapshotStatus;
+  /**
+   * Snapshot of the file content immediately *before* the AI edit
+   * (`null` for the first snapshot of a file, or when the agent edit
+   * has no recorded parent). Restore on reject reads from here.
+   */
+  parentSnapshotId?: string | null;
+}
+
+/* ------------------------------------------------------------------ *
+ * Scheduled jobs (Phase 3 / M2)                                      *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Lifecycle status of a single scheduled-job run.
+ *
+ * - `pending`     — row created, scheduler has not started it yet.
+ * - `running`     — runner is currently executing the prompt.
+ * - `success`     — prompt completed without error.
+ * - `failed`      — prompt raised an error; `error` column holds the message.
+ * - `skipped`     — catch-up window exceeded (server was down too long), see
+ *                   plan §4.1 decision 7.
+ * - `skipped_overlap` — previous run was still in flight when this one was
+ *                   due; see plan §4.1 decision 9.
+ */
+export type JobRunStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "skipped_overlap";
+
+/**
+ * A scheduled cron job. `cronExpression` is parsed by `croner` (5-field POSIX
+ * cron, see https://crontab.guru). `timezone` is an IANA tz string, e.g.
+ * `"Asia/Tokyo"`. `enabled=0` jobs are kept in DB but not registered with
+ * the scheduler.
+ */
+export interface ScheduledJob {
+  id: string;
+  workspaceId: string;
+  name: string;
+  prompt: string;
+  cronExpression: string;
+  timezone: string;
+  enabled: boolean;
+  /** ms epoch, derived. Updated whenever the schedule changes. */
+  nextRunAt: number | null;
+  /** ms epoch. Null until the first run completes. */
+  lastRunAt: number | null;
+  /** ID of the most recent session created by this job. */
+  lastRunSessionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * One execution attempt of a scheduled job. A job can have many runs over
+ * its lifetime; UI shows the most recent 20 in the detail drawer (plan §3.6).
+ */
+export interface JobRun {
+  id: string;
+  jobId: string;
+  /** When the run was supposed to fire, in job timezone, ms epoch. */
+  scheduledFor: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  status: JobRunStatus;
+  sessionId: string | null;
+  error: string | null;
 }
