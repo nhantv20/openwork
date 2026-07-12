@@ -183,6 +183,7 @@ export const SETTINGS_TAB_VALUES = [
   "preferences",
   "permissions",
   "shell",
+  "scheduled",
   "cloud-account",
   "cloud-marketplaces",
   "cloud-workers",

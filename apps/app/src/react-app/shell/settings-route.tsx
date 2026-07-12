@@ -84,6 +84,7 @@ import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
+import { ScheduledTasksView } from "@/react-app/domains/settings/scheduled/scheduled-tasks-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
@@ -260,6 +261,7 @@ function parseSettingsPath(pathname: string): {
     case "preferences":
     case "permissions":
     case "shell":
+    case "scheduled":
     case "advanced":
     case "appearance":
     case "environment":
@@ -2178,6 +2180,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             refreshImportedCloudProviders={providerAuthStore.refreshImportedCloudProviders}
             removeCloudProvider={providerAuthStore.removeCloudProvider}
             session={denSession}
+          />
+        );
+      case "scheduled":
+        return (
+          <ScheduledTasksView
+            openworkServerClient={openworkClient}
+            selectedWorkspaceId={selectedWorkspaceId}
           />
         );
       case "advanced":

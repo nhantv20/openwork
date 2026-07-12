@@ -3,6 +3,7 @@ import type * as React from "react";
 import {
   ArrowLeft,
   Bug,
+  CalendarClock,
   ChevronDown,
   CloudCog,
   Cog,
@@ -65,6 +66,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return SlidersHorizontal;
     case "shell":
       return Layout;
+    case "scheduled":
+      return CalendarClock;
     case "permissions":
       return FolderLock;
     case "cloud-account":
@@ -104,6 +107,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Preferences";
     case "shell":
       return "Customization";
+    case "scheduled":
+      return t("settings.tab_scheduled");
     case "permissions":
       return "Permissions";
     case "cloud-account":
@@ -155,6 +160,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_cloud_workers");
     case "cloud-providers":
       return t("settings.tab_description_cloud_providers");
+    case "scheduled":
+      return t("settings.tab_description_scheduled");
     case "skills":
       return t("settings.tab_description_skills");
     case "extensions":
@@ -179,7 +186,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "extensions", "advanced"];
+  return ["preferences", "permissions", "scheduled", "extensions", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

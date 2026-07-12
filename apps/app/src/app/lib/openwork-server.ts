@@ -446,6 +446,8 @@ export type OpenworkWorkspaceFileStat = {
 
 // Phase 6, slice 6.4 — file snapshot types. The server-side schema is in
 // apps/server/src/types.ts FileSnapshot; the wire format matches.
+export type OpenworkFileSnapshotStatus = "pending" | "approved" | "rejected";
+
 export type OpenworkFileSnapshot = {
   id: string;
   workspaceId: string;
@@ -456,6 +458,52 @@ export type OpenworkFileSnapshot = {
   createdAt: number;
   trigger: "auto" | "manual" | "agent";
   revision: string | null;
+  // Phase 6.9: approval workflow fields. `status` only set when
+  // `trigger === "agent"`. `parentSnapshotId` is the pre-AI snapshot
+  // used to roll back on reject; `null` means there is no parent
+  // (first snapshot of a file, or a legacy row).
+  status?: OpenworkFileSnapshotStatus;
+  parentSnapshotId?: string | null;
+};
+
+// Phase 6.9: workspace-wide "files waiting for approval" payload.
+// The server returns this from `GET /pending-approvals`.
+export type OpenworkPendingApproval = {
+  filePath: string;
+  snapshotId: string;
+  parentSnapshotId: string | null;
+  createdAt: number;
+  addedLines: number;
+  removedLines: number;
+  diffSummary: string;
+  size: number;
+};
+
+export type OpenworkPendingApprovalListResponse = {
+  items: OpenworkPendingApproval[];
+};
+
+// Phase 6.9: bulk approve/reject return shape. `failed` carries the
+// per-snapshot reason so the Review tab can keep the failed rows
+// visible and offer a retry.
+export type OpenworkBulkApprovalResult = {
+  approvedCount?: number;
+  rejectedCount?: number;
+  failed: Array<{ snapshotId: string; reason: string }>;
+};
+
+// Phase 6.9: paginated history of agent snapshots for the Review tab.
+export type OpenworkAgentSnapshotsResponse = {
+  items: OpenworkFileSnapshot[];
+  nextCursor: number | null;
+};
+
+// Phase 6.9: single approve/reject response shape.
+export type OpenworkApprovalActionResponse = {
+  ok: boolean;
+  snapshot?: OpenworkFileSnapshot | null;
+  restoredFrom?: string;
+  currentRevision?: string | null;
 };
 
 export type OpenworkFileSnapshotListResponse = { items: OpenworkFileSnapshot[] };
@@ -1092,6 +1140,50 @@ async function requestBinary(
   return { data, contentType, filename };
 }
 
+export type OpenworkScheduledJobStatus = "pending" | "running" | "success" | "failed" | "skipped" | "skipped_overlap";
+
+export type OpenworkScheduledJob = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  prompt: string;
+  cronExpression: string;
+  timezone: string;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastRunSessionId: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type OpenworkScheduledRun = {
+  id: string;
+  jobId: string;
+  scheduledFor: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  status: OpenworkScheduledJobStatus;
+  sessionId: string | null;
+  error: string | null;
+};
+
+export type OpenworkScheduledJobCreate = {
+  workspaceId: string;
+  name: string;
+  prompt: string;
+  cron: string;
+  timezone: string;
+};
+
+export type OpenworkScheduledJobUpdate = Partial<{
+  name: string;
+  prompt: string;
+  cron: string;
+  timezone: string;
+  enabled: boolean;
+}>;
+
 export function createOpenworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
@@ -1110,6 +1202,9 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     workspaceExport: 30_000,
     workspaceImport: 30_000,
     binary: 60_000,
+    scheduledList: 10_000,
+    scheduledMutate: 15_000,
+    scheduledRun: 30_000,
   };
 
   return {
@@ -1193,6 +1288,57 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteSession },
       ),
+    // Phase 3 / M2: scheduled jobs (cron). See
+    // docs/plan-sidebar-quick-actions-and-scheduled.md §3.5.
+    listScheduledJobs: (workspaceId?: string) => {
+      const suffix = workspaceId
+        ? `?workspaceId=${encodeURIComponent(workspaceId)}`
+        : "";
+      return requestJson<{ jobs: OpenworkScheduledJob[] }>(
+        baseUrl,
+        `/api/scheduled${suffix}`,
+        { token, hostToken, timeoutMs: timeouts.scheduledList },
+      );
+    },
+    getScheduledJob: (jobId: string) =>
+      requestJson<{ job: OpenworkScheduledJob; runs: OpenworkScheduledRun[] }>(
+        baseUrl,
+        `/api/scheduled/${encodeURIComponent(jobId)}`,
+        { token, hostToken, timeoutMs: timeouts.scheduledList },
+      ),
+    createScheduledJob: (input: OpenworkScheduledJobCreate) =>
+      requestJson<{ job: OpenworkScheduledJob }>(
+        baseUrl,
+        `/api/scheduled`,
+        { token, hostToken, method: "POST", body: input, timeoutMs: timeouts.scheduledMutate },
+      ),
+    updateScheduledJob: (jobId: string, patch: OpenworkScheduledJobUpdate) =>
+      requestJson<{ job: OpenworkScheduledJob }>(
+        baseUrl,
+        `/api/scheduled/${encodeURIComponent(jobId)}`,
+        { token, hostToken, method: "PATCH", body: patch, timeoutMs: timeouts.scheduledMutate },
+      ),
+    deleteScheduledJob: (jobId: string) =>
+      requestJson<{ ok: boolean }>(
+        baseUrl,
+        `/api/scheduled/${encodeURIComponent(jobId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.scheduledMutate },
+      ),
+    runScheduledJob: (jobId: string) =>
+      requestJson<{ run: OpenworkScheduledRun }>(
+        baseUrl,
+        `/api/scheduled/${encodeURIComponent(jobId)}/run`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.scheduledRun },
+      ),
+    listScheduledJobRuns: (jobId: string, options?: { limit?: number }) => {
+      const limit = options?.limit;
+      const suffix = typeof limit === "number" ? `?limit=${encodeURIComponent(String(limit))}` : "";
+      return requestJson<{ runs: OpenworkScheduledRun[] }>(
+        baseUrl,
+        `/api/scheduled/${encodeURIComponent(jobId)}/runs${suffix}`,
+        { token, hostToken, timeoutMs: timeouts.scheduledList },
+      );
+    },
     listSessions: (
       workspaceId: string,
       options?: { roots?: boolean; start?: number; search?: string; limit?: number },
@@ -1935,6 +2081,15 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/history/latest?path=${encodeURIComponent(path)}`,
         { token, hostToken },
       ),
+    // Phase 6.8: latest agent-triggered snapshot for a file, or null
+    // when no agent edit has been recorded. Used by the agent
+    // review banner to decide whether to surface a notification.
+    getLatestAgentSnapshot: (workspaceId: string, path: string) =>
+      requestJson<{ snapshot: OpenworkFileSnapshot | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/history/agent-latest?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
     saveFileSnapshot: (workspaceId: string, path: string, content: string, trigger: "auto" | "manual" = "manual") =>
       requestJson<OpenworkFileSnapshotSaveResponse>(
         baseUrl,
@@ -1959,6 +2114,53 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/history/diff?path=${encodeURIComponent(path)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
         { token, hostToken },
       ),
+    // Phase 6.9: Review Tab — approval workflow. The five methods below
+    // back the right-panel "Changes" / "History" tabs.
+    listPendingApprovals: (workspaceId: string) =>
+      requestJson<OpenworkPendingApprovalListResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/pending-approvals`,
+        { token, hostToken },
+      ),
+    approveSnapshot: (workspaceId: string, snapshotId: string) =>
+      requestJson<OpenworkApprovalActionResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/approvals/${encodeURIComponent(snapshotId)}/approve`,
+        { token, hostToken, method: "POST", body: {} },
+      ),
+    rejectSnapshot: (workspaceId: string, snapshotId: string) =>
+      requestJson<OpenworkApprovalActionResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/approvals/${encodeURIComponent(snapshotId)}/reject`,
+        { token, hostToken, method: "POST", body: {} },
+      ),
+    bulkApproveSnapshots: (workspaceId: string, snapshotIds: string[]) =>
+      requestJson<OpenworkBulkApprovalResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/approvals/approve-all`,
+        { token, hostToken, method: "POST", body: { snapshotIds } },
+      ),
+    bulkRejectSnapshots: (workspaceId: string, snapshotIds: string[]) =>
+      requestJson<OpenworkBulkApprovalResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/approvals/reject-all`,
+        { token, hostToken, method: "POST", body: { snapshotIds } },
+      ),
+    listAgentSnapshots: (
+      workspaceId: string,
+      opts?: { status?: OpenworkFileSnapshotStatus; limit?: number; before?: number },
+    ) => {
+      const params = new URLSearchParams();
+      if (opts?.status) params.set("status", opts.status);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      if (opts?.before) params.set("before", String(opts.before));
+      const qs = params.toString();
+      return requestJson<OpenworkAgentSnapshotsResponse>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/agent-snapshots${qs ? `?${qs}` : ""}`,
+        { token, hostToken },
+      );
+    },
     listWorkspaceChanges: (workspaceId: string, opts?: { limit?: number; before?: number }) => {
       const params = new URLSearchParams();
       if (opts?.limit) params.set("limit", String(opts.limit));
