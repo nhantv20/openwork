@@ -167,16 +167,23 @@
 | ✅ Conflict detection | 📄 `apps/server/src/services/file-sessions.ts` | `ifMatchRevision` trong write ops |
 | ✅ DiffViewer component | 📄 `apps/app/src/react-app/domains/session/artifacts/viewers/diff-viewer.tsx` | Side-by-side split diff |
 | ✅ Audit trail | 📄 `apps/server/src/services/audit.ts` | Ghi log file operations |
+| ✅ Snapshot store (slice 6.1) | 📄 `apps/server/src/file-snapshots.ts` | Per-file content snapshots in `runtime.sqlite`, dedup-on-hash, LRU 200/file |
+| ✅ Auto-snapshot middleware (slice 6.2) | 📄 `apps/server/src/snapshot-middleware.ts` | Pre-write snapshot hook ở 3 fire points trong `routes/files.ts` |
+| ✅ History API routes (slice 6.3) | 📄 `apps/server/src/routes/history.ts` | 5 endpoints: list / latest / snapshot / diff / content / restore + `/workspace/:id/changes` |
+| ✅ Unified-diff generator (slice 6.5a) | 📄 `apps/server/src/diff.ts` | `unifiedDiff()` pure helper, 1MB cap |
+| ✅ FileHistoryPanel UI (slice 6.4 + 6.5a) | 📄 `apps/app/src/react-app/domains/session/artifacts/file-history-panel.tsx` | Popover 2 tabs: History + All changes |
+| ✅ Git diff integration (slice 6.6) | 📄 `apps/server/src/git-diff.ts` + `routes/git.ts` | `GET /workspace/:id/git/status` + `/git/diff`, raw `git diff` output, symbolic refs + commit SHA |
+| ✅ Git Review tab (slice 6.6) | 📄 `apps/app/src/react-app/domains/session/artifacts/git-review-tab.tsx` | Review tab trong artifact panel, 2 dropdowns From/To, ẩn khi non-git workspace |
 
-### Phải làm
+### Phải làm (Phase 6.7 — AI Coding Diff)
 
-| Task | Effort | Reference để phát triển | Mô tả |
-|------|--------|------------------------|-------|
-| 📌 DB migration: file_snapshots | ~2h | 🔗 `aionui:packages/desktop/src/renderer/pages/conversation/Preview/hooks/usePreviewHistory.ts` (schema pattern) | Schema: id, workspace_id, file_path, content_hash, content, created_at, trigger |
-| 📌 Auto-snapshot middleware | ~4h | 🔗 `aionui:packages/desktop/src/process/utils/snapshotService.ts` (ước lượng) | Snapshot content trước khi ghi đè file |
-| 📌 History API route | ~4h | 📄 `apps/server/src/routes/files.ts` (pattern) | `GET /workspace/:id/files/:path/history` + `POST .../restore` |
-| 📌 History UI dropdown | ~8h | 🔗 `aionui:packages/desktop/src/renderer/pages/conversation/Preview/components/PreviewPanel/PreviewHistoryDropdown.tsx` | Danh sách version + restore button |
-| 📌 Diff compare 2 versions | ~4h | 📄 `viewers/diff-viewer.tsx` (đã có) + API mới | So sánh bất kỳ 2 snapshot |
+| Task | Reference để phát triển | Mô tả |
+|------|------------------------|-------|
+| 📌 `agent` trigger type | `apps/server/src/types.ts` + `file-snapshots.ts` | Extend `FileSnapshotTrigger` thêm `"agent"` |
+| 📌 Polling-based detector | `apps/server/src/agent-edit-detector.ts` + `agent-edit-poller.ts` | `setInterval` 5s scan workspace, heuristic classify HTTP vs agent write |
+| 📌 Wire HTTP write marker | `apps/server/src/routes/files.ts` (3 fire points) | `agentDetector.markHttpWrite()` trước mỗi write |
+| 📌 History filter "By source" | `apps/app/src/react-app/domains/session/artifacts/file-history-panel.tsx` | Segmented control: All / Auto / Manual / Agent |
+| 📌 Routes trigger filter | `apps/server/src/routes/history.ts` | Accept `trigger=agent` ở POST snapshot, query param ở GET |
 
 **Tổng effort: ~26h (~3 ngày)**
 
