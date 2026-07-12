@@ -63,6 +63,9 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { addHistoryRoutes } from "./routes/history.js";
 import { addGitRoutes } from "./routes/git.js";
+import { AgentEditDetector } from "./agent-edit-detector.js";
+import { startAgentEditPoller, type AgentEditPollerHandle } from "./agent-edit-poller.js";
+import { SnapshotStore } from "./file-snapshots.js";
 import { addDevHistoryRoutes } from "./dev/history-debug-handler.js";
 import {
   mergeOpencodeConfigs,
@@ -675,7 +678,25 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers);
+  // Phase 6.7: agent-edit detector + poller. The detector is the
+  // single source of truth for "is this a server write or an external
+  // write?" and is shared between the file write handlers (which
+  // call markHttpWrite before writing) and the poller (which
+  // periodically scans the workspace root and snapshots agent
+  // changes). The poller owns its own SnapshotStore — SQLite handles
+  // concurrent access across stores correctly via the connection
+  // lock, and the per-process store is cheap to spin up.
+  const agentDetector = new AgentEditDetector(config);
+  const agentPoller: AgentEditPollerHandle = startAgentEditPoller({
+    config,
+    workspaces: config.workspaces,
+    store: new SnapshotStore(config),
+    detector: agentDetector,
+    logger: {
+      warn: (msg) => logger.log("warn", msg),
+    },
+  });
+  const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers, undefined, agentDetector);
 
   const serverOptions: {
     hostname: string;
@@ -825,6 +846,8 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   return {
     ...server,
     stop: async () => {
+      agentPoller.stop();
+      agentDetector.stop();
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
       await server.stop();
@@ -1306,6 +1329,11 @@ function createRoutes(
   tokens: TokenService,
   env: EnvService,
   onWorkspacesChanged: () => void,
+  // Phase 6.7: optional. Kept in the signature so server.ts can wire
+  // the same detector instance into the file write handlers without
+  // having to reach into routes/files.ts internals.
+  _sharedSnapshotStore?: SnapshotStore,
+  agentDetector?: AgentEditDetector,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1947,6 +1975,7 @@ function createRoutes(
     resolveOutboxEnabled,
     resolveInboxMaxBytes,
     scopeRank,
+    ...(agentDetector ? { agentDetector } : {}),
   });
 
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {

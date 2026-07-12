@@ -454,7 +454,7 @@ export type OpenworkFileSnapshot = {
   content?: string;
   size: number;
   createdAt: number;
-  trigger: "auto" | "manual";
+  trigger: "auto" | "manual" | "agent";
   revision: string | null;
 };
 
@@ -1914,10 +1914,13 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       }),
 
     // Phase 6, slice 6.4 — file-snapshot history.
-    listFileHistory: (workspaceId: string, path: string, opts?: { limit?: number; before?: number }) => {
+    listFileHistory: (workspaceId: string, path: string, opts?: { limit?: number; before?: number; trigger?: "auto" | "manual" | "agent" }) => {
       const params = new URLSearchParams({ path });
       if (opts?.limit) params.set("limit", String(opts.limit));
       if (opts?.before) params.set("before", String(opts.before));
+      // Phase 6.7: optional trigger filter so the History tab can show
+      // only agent-written snapshots without a full client-side scan.
+      if (opts?.trigger) params.set("trigger", opts.trigger);
       return requestJson<OpenworkFileSnapshotListResponse>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/history?${params.toString()}`,
@@ -1962,7 +1965,17 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       if (opts?.before) params.set("before", String(opts.before));
       const qs = params.toString();
       return requestJson<{
-        items: Array<{ filePath: string; latestSnapshotAt: number; snapshotCount: number; latestTrigger: "auto" | "manual" }>;
+        items: Array<{
+          filePath: string;
+          latestSnapshotAt: number;
+          snapshotCount: number;
+          latestTrigger: "auto" | "manual" | "agent";
+          // Phase 6.7: count of agent-triggered snapshots for this
+          // file. Optional because the value only exists when the
+          // server is built with the Phase 6.7 changes; older servers
+          // simply return undefined and the UI treats it as 0.
+          agentSnapshotCount?: number;
+        }>;
         nextCursor: number | null;
       }>(
         baseUrl,

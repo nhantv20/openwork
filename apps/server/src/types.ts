@@ -248,7 +248,7 @@ export interface AuditEntry {
  * a UNIQUE index — saving the same content twice is a no-op (caller gets the
  * existing row back via `id`).
  */
-export type FileSnapshotTrigger = "auto" | "manual";
+export type FileSnapshotTrigger = "auto" | "manual" | "agent";
 
 export interface FileSnapshot {
   id: string;

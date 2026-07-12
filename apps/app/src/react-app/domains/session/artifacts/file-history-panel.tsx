@@ -26,6 +26,9 @@ import { History, RotateCcw, Save, GitCompareArrows, X, ListTree } from "lucide-
 import { useFileHistory } from "./hooks/use-file-history";
 import { DiffViewer } from "./viewers/diff-viewer";
 
+/** Phase 6.7: which trigger sources the History tab is showing. */
+type TriggerFilter = "all" | "auto" | "manual" | "agent";
+
 type Props = {
   client: OpenworkServerClient | null;
   workspaceId: string | null;
@@ -51,8 +54,17 @@ type CompareState =
   | { kind: "error"; snapshotId: string; message: string };
 
 export function FileHistoryPanel({ client, workspaceId, filePath, currentContent, onSelectFile }: Props) {
+  const [triggerFilter, setTriggerFilter] = useState<TriggerFilter>("all");
   const { history, historyLoading, historyError, saveManualSnapshot, isSaving, restoreSnapshot, isRestoring } =
-    useFileHistory({ client, workspaceId, filePath });
+    useFileHistory({
+      client,
+      workspaceId,
+      filePath,
+      // "all" leaves the trigger filter unset on the server side;
+      // the rest is forwarded so the server can do an indexed filter
+      // instead of returning everything and filtering in JS.
+      trigger: triggerFilter === "all" ? undefined : triggerFilter,
+    });
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [compare, setCompare] = useState<CompareState>({ kind: "idle" });
@@ -60,7 +72,7 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
   // response from snapshot A doesn't overwrite a fresh click on B.
   const compareTokenRef = useRef(0);
 
-  const changesQuery = useQuery<{ items: Array<{ filePath: string; latestSnapshotAt: number; snapshotCount: number; latestTrigger: "auto" | "manual" }> }>({
+  const changesQuery = useQuery<{ items: Array<{ filePath: string; latestSnapshotAt: number; snapshotCount: number; latestTrigger: "auto" | "manual" | "agent"; agentSnapshotCount?: number }> }>({
     queryKey: ["workspace-changes", workspaceId],
     queryFn: async () => {
       if (!client || !workspaceId) return { items: [] };
@@ -117,7 +129,7 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
   };
 
   return (
-    <div className="flex w-[28rem] max-w-[90vw] flex-col gap-3 p-3" data-testid="file-history-panel">
+    <div className="flex w-full max-w-full flex-col gap-3 p-3" data-testid="file-history-panel">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-[12px] font-semibold text-dls-text">
           <History className="h-3.5 w-3.5" />
@@ -150,14 +162,41 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
           {saveError ? <div className="text-[11px] text-red-500">{saveError}</div> : null}
           {restoreError ? <div className="text-[11px] text-red-500">{restoreError}</div> : null}
 
-          <div className="max-h-72 overflow-y-auto rounded-md border border-dls-border">
+          {/* Phase 6.7: trigger filter. Default "All" so the existing
+              UX is unchanged for files with no agent edits. */}
+          <div className="flex items-center gap-1 text-[10px]" data-testid="file-history-trigger-filter">
+            <span className="text-dls-secondary">Source</span>
+            {(["all", "auto", "manual", "agent"] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setTriggerFilter(opt)}
+                data-testid={`file-history-filter-${opt}`}
+                className={
+                  triggerFilter === opt
+                    ? "rounded-md bg-accent px-2 py-0.5 font-medium text-accent-foreground"
+                    : "rounded-md px-2 py-0.5 text-dls-secondary hover:bg-accent/40 hover:text-foreground"
+                }
+              >
+                {opt === "all" ? "All" : opt[0].toUpperCase() + opt.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          <div className="max-h-[60vh] overflow-y-auto rounded-md border border-dls-border">
             {historyLoading ? (
               <div className="p-3 text-center text-[11px] text-dls-secondary">Loading…</div>
             ) : historyError ? (
               <div className="p-3 text-center text-[11px] text-red-500">{historyError.message}</div>
             ) : history.length === 0 ? (
-              <div className="p-3 text-center text-[11px] text-dls-secondary">
-                No history yet — changes to this file are tracked automatically.
+              <div className="p-3 text-center text-[11px] text-dls-secondary" data-testid="file-history-empty">
+                {triggerFilter === "agent"
+                  ? "No agent changes yet — OpenCode edits will appear here."
+                  : triggerFilter === "manual"
+                    ? "No manual snapshots — click “Save snapshot” to add one."
+                    : triggerFilter === "auto"
+                      ? "No auto-snapshots yet — edit the file to start tracking."
+                      : "No history yet — changes to this file are tracked automatically."}
               </div>
             ) : (
               <ul className="divide-y divide-dls-border" data-testid="file-history-list">
@@ -170,7 +209,19 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
                     <div className="min-w-0 flex-1">
                       <div className="font-mono text-[10px] text-dls-text">{snap.id.slice(0, 12)}…</div>
                       <div className="text-[10px] text-dls-secondary">
-                        {formatRelative(snap.createdAt)} · {snap.size} B · {snap.trigger}
+                        {formatRelative(snap.createdAt)} · {snap.size} B ·{" "}
+                        <span
+                          className={
+                            snap.trigger === "agent"
+                              ? "rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300"
+                              : snap.trigger === "manual"
+                                ? "rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:text-blue-300"
+                                : "text-dls-secondary"
+                          }
+                          data-testid={`file-history-trigger-pill-${snap.trigger}`}
+                        >
+                          {snap.trigger}
+                        </span>
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -242,7 +293,7 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
                 </Button>
               </div>
               {compare.diff ? (
-                <DiffViewer diff={compare.diff} className="max-h-72 overflow-auto" />
+                <DiffViewer diff={compare.diff} className="max-h-[60vh] overflow-auto" />
               ) : (
                 <div className="text-[11px] text-dls-secondary">No changes between this snapshot and the current file.</div>
               )}
@@ -262,7 +313,7 @@ export function FileHistoryPanel({ client, workspaceId, filePath, currentContent
               No changes tracked yet — edit a file to start.
             </div>
           ) : (
-            <ul className="max-h-72 overflow-y-auto rounded-md border border-dls-border" data-testid="file-history-changes-list">
+            <ul className="max-h-[60vh] overflow-y-auto rounded-md border border-dls-border" data-testid="file-history-changes-list">
               {changesQuery.data?.items.map((item) => (
                 <li
                   key={item.filePath}

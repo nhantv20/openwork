@@ -37,6 +37,10 @@ interface RegisterFileRoutesOptions {
   resolveOutboxEnabled: () => boolean;
   resolveInboxMaxBytes: () => number;
   scopeRank: (scope: TokenScope) => number;
+  /** Phase 6.7: marks HTTP-initiated writes so the agent-edit poller
+   * doesn't double-snapshot them. Optional so existing callers don't
+   * have to wire it. */
+  agentDetector?: { markHttpWrite: (workspaceId: string, filePath: string) => void };
 }
 
 function resolveInboxDir(workspaceRoot: string): string {
@@ -484,6 +488,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   } = options;
   const fileSessions = new FileSessionStore();
   const snapshotStore = new SnapshotStore(config);
+  const agentDetector = options.agentDetector;
 
   const serializeFileSession = (session: {
     id: string;
@@ -888,6 +893,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         // re-reading concurrently with the write.
         const preRead = before ? await readFile(entry.absPath) : null;
         const preReadBuffer = preRead ? Buffer.from(preRead) : null;
+        // Phase 6.7: mark this write so the agent-edit poller doesn't
+        // re-snapshot the same change a few seconds later. Cheap and
+        // sync; safe to call before the async middleware fires.
+        if (agentDetector) agentDetector.markHttpWrite(workspace.id, entry.path);
         // Phase 6: snapshot the pre-write content (best-effort, async).
         fireMaybeSnapshot(
           config,
@@ -1193,6 +1202,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     // re-reading concurrently with the write.
     const preRead = before ? await readFile(absPath) : null;
     const preReadBuffer = preRead ? Buffer.from(preRead) : null;
+    // Phase 6.7: mark this write so the agent-edit poller doesn't
+    // re-snapshot the same change a few seconds later. Cheap and
+    // sync; safe to call before the async middleware fires.
+    if (agentDetector) agentDetector.markHttpWrite(workspace.id, relativePath);
     // Phase 6: snapshot the pre-write content (best-effort, async).
     fireMaybeSnapshot(
       config,
@@ -1282,6 +1295,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     // auto-snapshot captures the OLD content, not the new one.
     const preRead = before ? await readFile(absPath) : null;
     const preReadBuffer = preRead ? Buffer.from(preRead) : null;
+    // Phase 6.7: see comment in the other fire point above.
+    if (agentDetector) agentDetector.markHttpWrite(workspace.id, relativePath);
     // Phase 6: snapshot the pre-write content (best-effort, async).
     fireMaybeSnapshot(
       config,

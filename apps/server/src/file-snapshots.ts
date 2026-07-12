@@ -98,13 +98,15 @@ function rowToSnapshot(row: SnapshotRow): FileSnapshot {
     content: row.content,
     size: row.size,
     createdAt: row.createdAt,
-    trigger: row.trigger === "manual" ? "manual" : "auto",
+    // Phase 6.7: keep all three trigger values; only the legacy
+    // shape (anything outside the whitelist) is normalised to "auto".
+    trigger: isValidTrigger(row.trigger) ? row.trigger : "auto",
     revision: row.revision,
   };
 }
 
 function isValidTrigger(value: string): value is FileSnapshotTrigger {
-  return value === "auto" || value === "manual";
+  return value === "auto" || value === "manual" || value === "agent";
 }
 
 function normalizeContentHash(content: string): string {
@@ -463,7 +465,10 @@ export class SnapshotStore {
         `SnapshotStore.save: content exceeds MAX_SNAPSHOT_BYTES (${MAX_SNAPSHOT_BYTES})`,
       );
     }
-    const trigger: FileSnapshotTrigger = input.trigger === "manual" ? "manual" : "auto";
+    const trigger: FileSnapshotTrigger = input.trigger ?? "auto";
+  if (!isValidTrigger(trigger)) {
+    throw new TypeError(`SnapshotStore.save: invalid trigger '${input.trigger}'`);
+  }
     const db = await snapshotDb(this.config);
     const row: SnapshotRow = {
       id: input.id ?? shortId(),

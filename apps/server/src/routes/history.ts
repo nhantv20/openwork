@@ -49,7 +49,7 @@ export interface RegisterHistoryRoutesOptions {
 // thin DB accessor over runtime.sqlite so the GROUP BY + HAVING runs in the
 // SQL engine rather than in JS.
 
-type ChangesRow = { filePath: string; latestAt: number; count: number; trigger: string };
+type ChangesRow = { filePath: string; latestAt: number; count: number; trigger: string; agentCount: number };
 
 type ChangesDb = {
   changes: (workspaceId: string, limit: number) => ChangesRow[];
@@ -88,7 +88,8 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
                   COUNT(*) AS count,
                   (SELECT trigger FROM file_snapshots s2
                    WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
-                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger,
+                  SUM(CASE WHEN trigger = 'agent' THEN 1 ELSE 0 END) AS agentCount
            FROM file_snapshots
            WHERE workspace_id = ?
            GROUP BY file_path
@@ -106,7 +107,8 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
                   COUNT(*) AS count,
                   (SELECT trigger FROM file_snapshots s2
                    WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
-                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+                   ORDER BY s2.created_at DESC LIMIT 1) AS trigger,
+                  SUM(CASE WHEN trigger = 'agent' THEN 1 ELSE 0 END) AS agentCount
            FROM file_snapshots
            WHERE workspace_id = ?
            GROUP BY file_path
@@ -130,7 +132,8 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
                 COUNT(*) AS count,
                 (SELECT trigger FROM file_snapshots s2
                  WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
-                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger,
+                SUM(CASE WHEN trigger = 'agent' THEN 1 ELSE 0 END) AS agentCount
          FROM file_snapshots
          WHERE workspace_id = ?
          GROUP BY file_path
@@ -147,7 +150,8 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
                 COUNT(*) AS count,
                 (SELECT trigger FROM file_snapshots s2
                  WHERE s2.workspace_id = ? AND s2.file_path = file_snapshots.file_path
-                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger
+                 ORDER BY s2.created_at DESC LIMIT 1) AS trigger,
+                SUM(CASE WHEN trigger = 'agent' THEN 1 ELSE 0 END) AS agentCount
          FROM file_snapshots
          WHERE workspace_id = ?
          GROUP BY file_path
@@ -185,7 +189,7 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     const before = beforeRaw ? Number(beforeRaw) : null;
 
     const db = await getChangesDb(config);
-    let rows: Array<{ filePath: string; latestAt: number; count: number; trigger: string }>;
+    let rows: Array<{ filePath: string; latestAt: number; count: number; trigger: string; agentCount: number }>;
     if (before !== null && Number.isFinite(before)) {
       rows = db.changesSince(workspace.id, before, limit + 1);
     } else {
@@ -196,24 +200,35 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
       filePath: row.filePath,
       latestSnapshotAt: row.latestAt,
       snapshotCount: row.count,
-      latestTrigger: row.trigger === "manual" ? "manual" : "auto",
+      latestTrigger: row.trigger === "manual" || row.trigger === "agent" ? row.trigger : "auto",
+      agentSnapshotCount: row.agentCount ?? 0,
     }));
     const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].latestSnapshotAt : null;
     return jsonResponse({ items, nextCursor });
   });
 
-  // 1. GET /workspace/:id/history?path=&limit=&before= — list snapshots for a file.
+  // 1. GET /workspace/:id/history?path=&limit=&before=&trigger= — list snapshots for a file.
   addRoute(routes, "GET", "/workspace/:id/history", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const filePath = readPathFromQuery(ctx.url);
     const limitRaw = ctx.url.searchParams.get("limit");
     const beforeRaw = ctx.url.searchParams.get("before");
+    const triggerRaw = ctx.url.searchParams.get("trigger");
     const limit = limitRaw ? Math.max(1, Math.min(500, Number(limitRaw) || 50)) : 50;
     const before = beforeRaw ? Number(beforeRaw) : undefined;
-    const items = await store.list(workspace.id, filePath, {
+    // Phase 6.7: optional trigger filter so the History tab can show
+    // only agent-written snapshots without a full client-side scan.
+    const trigger =
+      triggerRaw === "auto" || triggerRaw === "manual" || triggerRaw === "agent"
+        ? triggerRaw
+        : undefined;
+    let items = await store.list(workspace.id, filePath, {
       limit,
       before: Number.isFinite(before) ? before : undefined,
     });
+    if (trigger) {
+      items = items.filter((snap) => snap.trigger === trigger);
+    }
     return jsonResponse({ items });
   });
 
@@ -236,7 +251,10 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     if (typeof body.content !== "string") {
       throw new ApiError(400, "invalid_input", "Body 'content' must be a string");
     }
-    const trigger = body.trigger === "manual" ? "manual" : "auto";
+    const trigger =
+      body.trigger === "manual" || body.trigger === "agent"
+        ? body.trigger
+        : "auto";
     const result = await store.save({
       workspaceId: workspace.id,
       filePath,

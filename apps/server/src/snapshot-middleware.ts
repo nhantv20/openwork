@@ -52,8 +52,11 @@ export type MaybeSnapshotInput = {
   /**
    * Override trigger — defaults to "auto". Tests pass "manual" to verify
    * the write path doesn't accidentally set "auto" on intentional saves.
+   * "agent" is set by the polling-based agent-edit detector in
+   * `agent-edit-poller.ts` (Phase 6.7) to distinguish OpenCode-driven
+   * writes from user UI saves.
    */
-  trigger?: "auto" | "manual";
+  trigger?: "auto" | "manual" | "agent";
   /**
    * Optional revision from `file-sessions.ts` for cross-referencing.
    * Read by the caller from `mtimeMs:size`; passed through verbatim.

@@ -21,6 +21,8 @@ type UseFileHistoryInput = {
   workspaceId: string | null;
   filePath: string | null;
   limit?: number;
+  /** Phase 6.7: filter by trigger. `undefined` returns all. */
+  trigger?: "auto" | "manual" | "agent";
 };
 
 type UseFileHistoryResult = {
@@ -34,19 +36,22 @@ type UseFileHistoryResult = {
 };
 
 export function useFileHistory(input: UseFileHistoryInput): UseFileHistoryResult {
-  const { client, workspaceId, filePath, limit = 50 } = input;
+  const { client, workspaceId, filePath, limit = 50, trigger } = input;
   const queryClient = useQueryClient();
 
   const queryKey = useMemo(
-    () => ["file-history", workspaceId, filePath, limit] as const,
-    [workspaceId, filePath, limit],
+    () => ["file-history", workspaceId, filePath, limit, trigger] as const,
+    [workspaceId, filePath, limit, trigger],
   );
 
   const historyQuery = useQuery<OpenworkFileSnapshot[]>({
     queryKey,
     queryFn: async () => {
       if (!client || !workspaceId || !filePath) return [];
-      const res = await client.listFileHistory(workspaceId, filePath, { limit });
+      const res = await client.listFileHistory(workspaceId, filePath, {
+        limit,
+        ...(trigger ? { trigger } : {}),
+      });
       return res.items;
     },
     enabled: Boolean(client && workspaceId && filePath),
