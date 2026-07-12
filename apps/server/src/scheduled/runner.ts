@@ -153,6 +153,14 @@ export async function executeScheduledJob(
         abortSession();
       },
     );
+    log("session.prompt responded", {
+      jobId: job.id,
+      sessionId,
+      status: promptResult.response?.status,
+      hasError: Boolean(promptResult.error),
+      hasData: Boolean(promptResult.data),
+      errorName: isRecord(promptResult.error) ? String(promptResult.error.name ?? "") : "",
+    });
   } catch (err) {
     abortSession();
     return finalizeFailed(deps.db, run.id, now(), `session.prompt threw: ${err instanceof Error ? err.message : String(err)}`);
