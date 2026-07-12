@@ -1386,7 +1386,7 @@ export function SessionPage(props: SessionPageProps) {
                 ? // Sidebar visible — sit just inside the right edge of the
                   // sidebar column, on the same row as the macOS traffic
                   // lights.
-                  "mac:left-[calc(var(--sidebar-width)-24px)] mac:-translate-x-1/2"
+                  "mac:left-[calc(var(--sidebar-width)-12px)] mac:-translate-x-1/2"
                 : // Sidebar hidden — slide left to sit right next to the macOS
                   // traffic lights so it doesn't dangle in empty space.
                   "mac:left-[78px] mac:translate-x-0",
