@@ -1,20 +1,19 @@
 /**
- * Scheduled tasks settings view (Phase 3 / M2 / S5).
+ * Scheduled tasks settings view (Phase 3 / M2 / S5 + S6).
  *
- * Lists cron jobs for the current workspace, lets the user toggle each
- * one enable/disable inline, and shows a "New task" button (the actual
- * create/edit dialog ships in S6). See
- * docs/plan-sidebar-quick-actions-and-scheduled.md §3.6.
+ * Lists cron jobs for the current workspace. Per plan §3.6:
+ * - Toggle enable/disable inline (Switch).
+ * - "New task" button opens the create dialog.
+ * - Row click opens the detail drawer (run history + Run now / Delete).
+ * - Empty / loading / error / requires-server states for graceful
+ *   failure modes.
  *
- * Design notes:
- * - The page is purely a list + toggle. Create/edit dialog, cron
- *   helper chips, and "next 3 runs" preview are deferred to S6.
- * - The Quick Actions group button in the sidebar (`onOpenScheduled`)
- *   routes here — the S1 wiring made that toast-only; once this view
- *   exists, server-side wiring will switch to actual navigation.
- *   For now, the button still toasts, but the page works end-to-end
- *   via Settings navigation.
+ * The Quick Actions group button in the sidebar (`onOpenScheduled`)
+ * still toasts in this slice — wiring it to actual navigation
+ * requires touching the top-level shell route, which the user
+ * can verify in-app and we'll rewire in a follow-up if desired.
  */
+import { useState } from "react";
 import { CalendarClock, Loader2, Plus } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
@@ -36,20 +35,29 @@ import {
   SettingsSectionHeaderTitle,
   SettingsSectionHeaderDescription,
 } from "../settings-section";
-import {
-  LayoutStack,
-} from "../settings-layout";
+import { LayoutStack } from "../settings-layout";
 import { t } from "@/i18n";
-import type { OpenworkServerClient } from "@/app/lib/openwork-server";
+import type {
+  OpenworkScheduledJob,
+  OpenworkServerClient,
+} from "@/app/lib/openwork-server";
+import { ScheduledTaskDialog } from "./scheduled-task-dialog";
+import { ScheduledTaskDetailDrawer } from "./scheduled-task-detail-drawer";
 
 export type ScheduledTasksViewProps = {
   openworkServerClient: OpenworkServerClient | null;
   selectedWorkspaceId: string;
+  /** Optional: navigate to a session from the detail drawer. */
+  onOpenSession?: (sessionId: string) => void;
 };
 
 export function ScheduledTasksView(props: ScheduledTasksViewProps) {
   const queryClient = useQueryClient();
   const enabled = Boolean(props.openworkServerClient) && Boolean(props.selectedWorkspaceId);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogJob, setDialogJob] = useState<OpenworkScheduledJob | null>(null);
+  const [drawerJob, setDrawerJob] = useState<OpenworkScheduledJob | null>(null);
 
   const jobsQuery = useQuery({
     queryKey: ["scheduled-jobs", props.selectedWorkspaceId],
@@ -84,10 +92,16 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
     },
   });
 
-  const onNewClick = () => {
-    toast(t("settings.scheduled_new_coming_soon"), {
-      description: t("settings.scheduled_new_coming_soon_hint"),
-    });
+  const openNewDialog = () => {
+    setDialogJob(null);
+    setDialogOpen(true);
+  };
+  const openEditDialog = (job: OpenworkScheduledJob) => {
+    setDialogJob(job);
+    setDialogOpen(true);
+  };
+  const openDrawer = (job: OpenworkScheduledJob) => {
+    setDrawerJob(job);
   };
 
   return (
@@ -107,7 +121,8 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
               type="button"
               size="sm"
               className="shrink-0 gap-1.5"
-              onClick={onNewClick}
+              onClick={openNewDialog}
+              disabled={!enabled}
               data-testid="scheduled-new-button"
             >
               <Plus className="size-4" />
@@ -144,7 +159,7 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
               <EmptyDescription>{t("settings.scheduled_empty_description")}</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
-              <Button type="button" size="sm" onClick={onNewClick} className="gap-1.5">
+              <Button type="button" size="sm" onClick={openNewDialog} className="gap-1.5">
                 <Plus className="size-4" />
                 {t("settings.scheduled_empty_create_button")}
               </Button>
@@ -159,14 +174,31 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
                   className="flex items-center gap-3 px-3 py-2.5"
                   data-testid={`scheduled-row-${job.id}`}
                 >
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => openDrawer(job)}
+                    className="min-w-0 flex-1 cursor-pointer text-left"
+                    data-testid={`scheduled-row-button-${job.id}`}
+                  >
                     <div className="truncate text-[13px] font-medium text-dls-text">
                       {job.name}
                     </div>
                     <div className="truncate font-mono text-[11px] text-dls-secondary">
                       {job.cronExpression} · {job.timezone}
                     </div>
-                  </div>
+                  </button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={() => openEditDialog(job)}
+                    className="text-dls-secondary"
+                    title={t("settings.scheduled_edit_button_aria")}
+                    aria-label={t("settings.scheduled_edit_button_aria")}
+                    data-testid={`scheduled-edit-${job.id}`}
+                  >
+                    {t("settings.scheduled_edit_button_short")}
+                  </Button>
                   <Switch
                     checked={job.enabled}
                     disabled={toggleMutation.isPending}
@@ -182,6 +214,33 @@ export function ScheduledTasksView(props: ScheduledTasksViewProps) {
           </div>
         )}
       </SettingsSection>
+
+      <ScheduledTaskDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        openworkServerClient={props.openworkServerClient}
+        selectedWorkspaceId={props.selectedWorkspaceId}
+        initialJob={dialogJob}
+        onSuccess={() => {
+          /* Toast + list refresh already handled in the dialog. */
+        }}
+      />
+
+      <ScheduledTaskDetailDrawer
+        open={drawerJob !== null}
+        onOpenChange={(next) => {
+          if (!next) setDrawerJob(null);
+        }}
+        openworkServerClient={props.openworkServerClient}
+        selectedWorkspaceId={props.selectedWorkspaceId}
+        job={drawerJob}
+        onOpenSession={props.onOpenSession}
+        onDeleted={(jobId) => {
+          setDrawerJob(null);
+          // Drop the now-stale cached entry.
+          queryClient.removeQueries({ queryKey: ["scheduled-job-runs", jobId] });
+        }}
+      />
     </LayoutStack>
   );
 }

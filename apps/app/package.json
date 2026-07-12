@@ -4,7 +4,7 @@
   "version": "0.17.7",
   "type": "module",
   "scripts": {
-    "test": "bun test tests/",
+    "test": "bun test tests/ $(find src -name '*.test.ts' -o -name '*.test.tsx')",
     "dev": "OPENWORK_DEV_MODE=1 vite",
     "build": "vite build",
     "dev:web": "OPENWORK_DEV_MODE=1 vite",
@@ -65,6 +65,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "croner": "^10.0.1",
     "diff": "^5.2.2",
     "dompurify": "^3.4.5",
     "emojilib": "^4.0.3",

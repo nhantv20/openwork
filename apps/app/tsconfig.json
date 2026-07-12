@@ -20,6 +20,7 @@
   },
   "include": [
     "globals.d.ts",
+    "bun-test.d.ts",
     "src/index.react.tsx",
     "src/components/**/*",
     "src/i18n/**/*",
