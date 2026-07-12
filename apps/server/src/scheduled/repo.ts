@@ -370,9 +370,11 @@ async function openBunDb(path: string): Promise<ScheduledDb> {
 
 /* ---------- Node path (raw SQL) ---------- */
 
-function openNodeDb(path: string): ScheduledDb {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+async function openNodeDb(path: string): Promise<ScheduledDb> {
+  // `await import(...)` works in both Bun and Node ESM contexts, where
+  // `require(...)` would crash at runtime when the bundle ships as
+  // ESM (Electron / desktop builds do exactly that).
+  const { DatabaseSync } = await import("node:sqlite");
   const sqlite = new DatabaseSync(path);
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_jobs (
