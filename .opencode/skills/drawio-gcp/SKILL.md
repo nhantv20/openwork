@@ -1,6 +1,6 @@
 ---
 name: drawio-gcp
-description: Use when the user asks for a GCP architecture diagram — VPC, Shared VPC landing zone, GKE, Cloud Run, Cloud SQL, Cloud Storage, Interconnect, PSC, VPC-SC, or any diagram built with Google Cloud service icons. Builds with the declarative drawio-ai layout engine using ground-truth GCP stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request.
+description: "Use when the user asks for a GCP architecture diagram — VPC, Shared VPC landing zone, GKE, Cloud Run, Cloud SQL, Cloud Storage, Interconnect, PSC, VPC-SC, or any diagram built with Google Cloud service icons. Builds with the declarative drawio-ai layout engine using ground-truth GCP stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request."
 version: 1.0.0
 license: MIT
 upstream: sparklabx/drawio-ai-kit@v1.0.0 (814d97e)

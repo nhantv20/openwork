@@ -1,6 +1,6 @@
 ---
 name: drawio-bpmn
-description: Use when the user asks for a BPMN process diagram — pool + lanes, phases, swimlanes, gateways (exclusive/parallel/event-based), events (start/intermediate/end), tasks, message flows, sequence flows. Builds with the declarative drawio-ai layout engine using ground-truth BPMN stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request.
+description: "Use when the user asks for a BPMN process diagram — pool + lanes, phases, swimlanes, gateways (exclusive/parallel/event-based), events (start/intermediate/end), tasks, message flows, sequence flows. Builds with the declarative drawio-ai layout engine using ground-truth BPMN stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request."
 version: 1.0.0
 license: MIT
 upstream: sparklabx/drawio-ai-kit@v1.0.0 (814d97e)

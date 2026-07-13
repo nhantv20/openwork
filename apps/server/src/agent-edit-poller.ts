@@ -277,12 +277,39 @@ async function trySnapshot(
     return false;
   }
 
+  // Phase 6.9 fix: stamp the most recent non-agent snapshot as
+  // `parentSnapshotId` so the Review tab's diff is correct (it diffs
+  // parent → current, not the agent snapshot → current). Without
+  // this, every pending file shows "Initial version — no pre-AI
+  // snapshot to diff against" in the UI.
+  //
+  // We use `findLatestNonAgent` (not the trigger-less `findLatest`)
+  // so we don't accidentally pick up the agent snapshot we are
+  // about to save — that would create a self-referential parent
+  // and the reject path would restore the same AI content it just
+  // wrote.
+  let parentSnapshotId: string | null = null;
+  try {
+    const latest = await store.findLatestNonAgent(workspace.id, relPath);
+    if (latest) {
+      parentSnapshotId = latest.id;
+    }
+  } catch (err) {
+    // Non-fatal: a missing parent just means we can't offer reject.
+    logger.warn(
+      `[agent-edit-poller] findLatestNonAgent failed for ${relPath}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
   try {
     const result = await store.save({
       workspaceId: workspace.id,
       filePath: relPath,
       content: buf.toString("utf8"),
       trigger: "agent",
+      parentSnapshotId,
     });
     if (result.deduped) {
       return false;

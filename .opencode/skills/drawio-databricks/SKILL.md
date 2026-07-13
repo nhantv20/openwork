@@ -1,6 +1,6 @@
 ---
 name: drawio-databricks
-description: Use when the user asks for a Databricks architecture diagram — Lakehouse (medallion: Bronze/Silver/Gold), Data Intelligence Platform, MLOps with workspaces, Unity Catalog, Delta Sharing, Mosaic AI, control-plane vs data-plane, or any diagram built with Databricks icons. Builds with the declarative drawio-ai layout engine, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request.
+description: "Use when the user asks for a Databricks architecture diagram — Lakehouse (medallion: Bronze/Silver/Gold), Data Intelligence Platform, MLOps with workspaces, Unity Catalog, Delta Sharing, Mosaic AI, control-plane vs data-plane, or any diagram built with Databricks icons. Builds with the declarative drawio-ai layout engine, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request."
 version: 1.0.0
 license: MIT
 upstream: sparklabx/drawio-ai-kit@v1.0.0 (814d97e)

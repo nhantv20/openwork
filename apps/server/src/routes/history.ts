@@ -29,6 +29,24 @@ import type { FileSnapshot, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ensureDir, shortId } from "../utils.js";
 import { addRoute, type Route } from "./registry.js";
 
+/**
+ * Count the `+`/`-` lines in a unified-diff string so the Review
+ * tab's "X pending +N -M" badge has real numbers. Excludes the
+ * hunk headers (`@@ -a,b +c,d @@`) and the file headers (`---
+ * a`/`+++ b`) so only the actual change lines are counted.
+ */
+function diffLineStats(unified: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of unified.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("@@")) continue;
+    if (line.startsWith("+")) added += 1;
+    else if (line.startsWith("-")) removed += 1;
+  }
+  return { added, removed };
+}
+
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 
@@ -80,6 +98,10 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
   if (typeof process.versions.bun === "string") {
     const { Database } = await import("bun:sqlite");
     const sqlite = new Database(path, { readonly: true });
+    // Tiebreaker: `file_path ASC` keeps ordering stable when two files
+    // share the same `MAX(created_at)` (e.g. a test that creates three
+    // snapshots within the same millisecond). Without it, SQLite is free
+    // to return rows in any order and pagination tests flake.
     const changes = (workspaceId: string, limit: number): ChangesRow[] => {
       const rows = sqlite
         .query(
@@ -93,7 +115,7 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
            FROM file_snapshots
            WHERE workspace_id = ?
            GROUP BY file_path
-           ORDER BY MAX(created_at) DESC
+           ORDER BY MAX(created_at) DESC, file_path ASC
            LIMIT ?`,
         )
         .all(workspaceId, workspaceId, limit) as ChangesRow[];
@@ -113,7 +135,7 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
            WHERE workspace_id = ?
            GROUP BY file_path
            HAVING MAX(created_at) < ?
-           ORDER BY MAX(created_at) DESC
+           ORDER BY MAX(created_at) DESC, file_path ASC
            LIMIT ?`,
         )
         .all(workspaceId, workspaceId, before, limit) as ChangesRow[];
@@ -124,6 +146,7 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
 
   const { DatabaseSync } = await import("node:sqlite");
   const sqlite = new DatabaseSync(path, { readOnly: true });
+  // See the bun:sqlite path above for why the tiebreaker is needed.
   const changes = (workspaceId: string, limit: number): ChangesRow[] => {
     return sqlite
       .prepare(
@@ -137,7 +160,7 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
          FROM file_snapshots
          WHERE workspace_id = ?
          GROUP BY file_path
-         ORDER BY MAX(created_at) DESC
+         ORDER BY MAX(created_at) DESC, file_path ASC
          LIMIT ?`,
       )
       .all(workspaceId, workspaceId, limit) as ChangesRow[];
@@ -156,7 +179,7 @@ async function openChangesDb(path: string): Promise<ChangesDb> {
          WHERE workspace_id = ?
          GROUP BY file_path
          HAVING MAX(created_at) < ?
-         ORDER BY MAX(created_at) DESC
+         ORDER BY MAX(created_at) DESC, file_path ASC
          LIMIT ?`,
       )
       .all(workspaceId, workspaceId, before, limit) as ChangesRow[];
@@ -242,6 +265,19 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     return jsonResponse({ snapshot });
   });
 
+  // 1c. GET /workspace/:id/history/agent-latest?path= — Phase 6.8: latest
+  // agent-triggered snapshot for a file, or null. Used by the agent
+  // review banner to decide whether to surface a notification. Kept
+  // separate from /latest (which returns the most recent of any
+  // trigger) so a freshly-typed manual save doesn't hide an
+  // older-but-pending agent edit.
+  addRoute(routes, "GET", "/workspace/:id/history/agent-latest", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const filePath = readPathFromQuery(ctx.url);
+    const snapshot = await store.findLatest(workspace.id, filePath, { trigger: "agent" });
+    return jsonResponse({ snapshot });
+  });
+
   // 2. POST /workspace/:id/history/snapshot?path= — create a manual snapshot.
   addRoute(routes, "POST", "/workspace/:id/history/snapshot", "client", async (ctx) => {
     ensureWritable(config);
@@ -255,11 +291,19 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
       body.trigger === "manual" || body.trigger === "agent"
         ? body.trigger
         : "auto";
+    // Phase 6.9: accept parentSnapshotId so the agent-edit path can
+    // pre-stamp the row with the snapshot id of the pre-AI version.
+    // Backwards-compatible: missing / null is fine for non-agent rows.
+    const parentSnapshotId =
+      typeof body.parentSnapshotId === "string" && body.parentSnapshotId.trim()
+        ? body.parentSnapshotId
+        : null;
     const result = await store.save({
       workspaceId: workspace.id,
       filePath,
       content: body.content,
       trigger,
+      parentSnapshotId,
     });
     return jsonResponse({ snapshot: result.snapshot, deduped: result.deduped, trimmed: result.trimmed });
   });
@@ -445,6 +489,308 @@ export function addHistoryRoutes(options: RegisterHistoryRoutesOptions): void {
     });
 
     return jsonResponse({ ok: true, path: filePath, newRevision, snapshot });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 6.9: Review Tab — approval workflow routes
+  // -------------------------------------------------------------------------
+  // These are mounted under `/workspace/:id/approvals/...` (instead of
+  // `/history/...`) so the Review tab can call a single, stable surface
+  // that owns the full approve/reject lifecycle. Restore-on-reject is
+  // delegated to the existing `/history/:snapshotId/restore` path so we
+  // don't duplicate the pre-restore + revision-check logic.
+
+  // 6. GET /workspace/:id/pending-approvals — list files with a pending
+  //    agent snapshot. Powers the Review tab's "Changes" list.
+  addRoute(routes, "GET", "/workspace/:id/pending-approvals", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const rows = await store.listAgentSnapshots(workspace.id, { status: "pending", limit: 200 });
+    // Phase 6.9 hotfix: for legacy agent snapshots where
+    // `parentSnapshotId` is null (saved before the agent-edit-poller
+    // started stamping it), look up the most recent non-agent
+    // snapshot for the same file at response time. This avoids a
+    // destructive backfill migration while still making the diff
+    // work for users with existing pending rows.
+    //
+    // We also compute the actual `+N -M` line counts from a
+    // parent → current-file diff so the Review tab header can show
+    // a real "Edited N files +A -B" summary, not a placeholder.
+    const enriched = await Promise.all(
+      rows.map(async (snap) => {
+        let parentId = snap.parentSnapshotId ?? null;
+        if (parentId === null) {
+          const latest = await store.findLatestNonAgent(workspace.id, snap.filePath);
+          if (latest) {
+            parentId = latest.id;
+          }
+        }
+
+        // Read parent + current. We swallow ENOENT and oversized
+        // payloads so a single bad row doesn't poison the whole
+        // list — the line counts just stay 0.
+        let addedLines = 0;
+        let removedLines = 0;
+        let diffSummary = "";
+        if (parentId) {
+          const parent = await store.getById(workspace.id, parentId);
+          const abs = join(workspace.path, snap.filePath);
+          const current = await readFile(abs, "utf8").catch((err: NodeJS.ErrnoException) => {
+            if (err.code === "ENOENT") return "";
+            throw err;
+          });
+          if (parent) {
+            try {
+              const patch = unifiedDiff(parent.content, current, {
+                fileName: snap.filePath,
+                oldLabel: parent.id,
+                newLabel: "current",
+              });
+              const stats = diffLineStats(patch);
+              addedLines = stats.added;
+              removedLines = stats.removed;
+              diffSummary = `+${addedLines} -${removedLines}`;
+            } catch (err) {
+              if (!(err instanceof PayloadTooLargeError)) throw err;
+            }
+          }
+        }
+
+        return {
+          filePath: snap.filePath,
+          snapshotId: snap.id,
+          parentSnapshotId: parentId,
+          createdAt: snap.createdAt,
+          addedLines,
+          removedLines,
+          diffSummary,
+          size: snap.size,
+        };
+      }),
+    );
+    return jsonResponse({ items: enriched });
+  });
+
+  // 7. POST /workspace/:id/approvals/:snapshotId/approve — flip an
+  //    agent snapshot to "approved". Pure metadata write; the file on
+  //    disk is left as-is so git picks it up normally.
+  addRoute(routes, "POST", "/workspace/:id/approvals/:snapshotId/approve", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const snapshotId = ctx.params.snapshotId;
+    const snapshot = await store.getById(workspace.id, snapshotId);
+    if (!snapshot) {
+      throw new ApiError(404, "snapshot_not_found", `Snapshot '${snapshotId}' not found`);
+    }
+    if (snapshot.trigger !== "agent") {
+      throw new ApiError(
+        400,
+        "not_agent_snapshot",
+        `Snapshot '${snapshotId}' is not an agent snapshot`,
+      );
+    }
+    const updated = await store.approve(workspace.id, snapshotId);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "review.approve",
+      target: snapshot.filePath,
+      summary: `Approved agent edit on ${snapshot.filePath}`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, snapshot: updated });
+  });
+
+  // 8. POST /workspace/:id/approvals/:snapshotId/reject — restore the
+  //    file from `parentSnapshotId` (when available) and flip the
+  //    snapshot to "rejected". Returns 409 with code NO_PARENT_SNAPSHOT
+  //    when the row has no pre-AI parent (recoverable on the client
+  //    with an explicit "leave as-is" confirm).
+  addRoute(routes, "POST", "/workspace/:id/approvals/:snapshotId/reject", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const snapshotId = ctx.params.snapshotId;
+    const snapshot = await store.getById(workspace.id, snapshotId);
+    if (!snapshot) {
+      throw new ApiError(404, "snapshot_not_found", `Snapshot '${snapshotId}' not found`);
+    }
+    if (snapshot.trigger !== "agent") {
+      throw new ApiError(
+        400,
+        "not_agent_snapshot",
+        `Snapshot '${snapshotId}' is not an agent snapshot`,
+      );
+    }
+    // Phase 6.9 hotfix: legacy snapshots (saved before
+    // agent-edit-poller started stamping parentSnapshotId) get the
+    // same in-memory backfill as the pending-approvals list. Without
+    // this, those rows are forever un-rejectable.
+    let effectiveParentId = snapshot.parentSnapshotId;
+    if (effectiveParentId == null) {
+      const latest = await store.findLatestNonAgent(workspace.id, snapshot.filePath);
+      if (latest) {
+        effectiveParentId = latest.id;
+        // Backfill the row so subsequent calls are O(1) and the
+        // History tab shows the link too.
+        await store.setParentSnapshotId(workspace.id, snapshotId, latest.id);
+      }
+    }
+    if (effectiveParentId == null) {
+      throw new ApiError(
+        409,
+        "no_parent_snapshot",
+        "Cannot reject: no pre-AI snapshot available to restore",
+        { snapshotId, filePath: snapshot.filePath },
+      );
+    }
+    const parent = await store.getById(workspace.id, effectiveParentId);
+    if (!parent) {
+      throw new ApiError(
+        409,
+        "parent_snapshot_missing",
+        "Pre-AI snapshot has been trimmed; cannot restore",
+        { snapshotId, parentSnapshotId: effectiveParentId },
+      );
+    }
+    // Restore is the same code path as the manual /history/.../restore
+    // route. We inline the file write here to avoid a second round-trip
+    // and to keep `recordAudit` consistent with the approve path.
+    //
+    // Note (L4 review): we deliberately do NOT pre-snapshot the post-AI
+    // content here. The snapshot store dedups on (workspace, file,
+    // contentHash), and the agent snapshot we just rejected already
+    // holds the post-AI content under status="rejected" — the user can
+    // find it on the History tab and restore from there. Adding a
+    // pre-reject snapshot would just dedup against the existing agent
+    // row and create the false impression that a separate copy exists.
+    const absolutePath = join(workspace.path, snapshot.filePath);
+    const currentStat = await stat(absolutePath).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return null;
+      throw err;
+    });
+    const currentRevision = currentStat ? `${currentStat.mtimeMs}:${currentStat.size}` : null;
+    await ensureDir(dirname(absolutePath));
+    const tmp = `${absolutePath}.tmp-${shortId()}`;
+    await writeFile(tmp, parent.content, "utf8");
+    await rename(tmp, absolutePath);
+    const updated = await store.reject(workspace.id, snapshotId);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "review.reject",
+      target: snapshot.filePath,
+      summary: `Rejected agent edit on ${snapshot.filePath} (restored from ${parent.id})`,
+      timestamp: Date.now(),
+    });
+    return jsonResponse({ ok: true, snapshot: updated, restoredFrom: parent.id, currentRevision });
+  });
+
+  // 9. POST /workspace/:id/approvals/approve-all — best-effort bulk
+  //    approve. Per WBS round-3 review decision: parallel settle, no
+  //    transaction, partial success is reported back. Client uses the
+  //    failed[] list to keep the corresponding rows in the UI and
+  //    offer a retry.
+  addRoute(routes, "POST", "/workspace/:id/approvals/approve-all", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const snapshotIds = Array.isArray(body.snapshotIds)
+      ? body.snapshotIds.filter((id): id is string => typeof id === "string")
+      : [];
+    const results = await Promise.allSettled(
+      snapshotIds.map((snapshotId) => store.approve(workspace.id, snapshotId)),
+    );
+    let approvedCount = 0;
+    const failed: Array<{ snapshotId: string; reason: string }> = [];
+    results.forEach((res, i) => {
+      const snapshotId = snapshotIds[i];
+      if (res.status === "fulfilled") {
+        if (res.value) {
+          approvedCount += 1;
+        } else {
+          failed.push({ snapshotId, reason: "snapshot_not_found" });
+        }
+      } else {
+        failed.push({
+          snapshotId,
+          reason: res.reason instanceof Error ? res.reason.message : "unknown_error",
+        });
+      }
+    });
+    return jsonResponse({ approvedCount, failed });
+  });
+
+  // 10. POST /workspace/:id/approvals/reject-all — best-effort bulk
+  //     reject. Same shape as approve-all. A snapshot without a parent
+  //     is reported as `reason: "no_parent_snapshot"` and left untouched.
+  addRoute(routes, "POST", "/workspace/:id/approvals/reject-all", "client", async (ctx) => {
+    ensureWritable(config);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const snapshotIds = Array.isArray(body.snapshotIds)
+      ? body.snapshotIds.filter((id): id is string => typeof id === "string")
+      : [];
+    const results = await Promise.allSettled(
+      snapshotIds.map(async (snapshotId) => {
+        const snapshot = await store.getById(workspace.id, snapshotId);
+        if (!snapshot) throw new Error("snapshot_not_found");
+        if (snapshot.parentSnapshotId == null) {
+          throw new Error("no_parent_snapshot");
+        }
+        const parent = await store.getById(workspace.id, snapshot.parentSnapshotId);
+        if (!parent) throw new Error("parent_snapshot_missing");
+        const absolutePath = join(workspace.path, snapshot.filePath);
+        await ensureDir(dirname(absolutePath));
+        const tmp = `${absolutePath}.tmp-${shortId()}`;
+        await writeFile(tmp, parent.content, "utf8");
+        await rename(tmp, absolutePath);
+        return store.reject(workspace.id, snapshotId);
+      }),
+    );
+    let rejectedCount = 0;
+    const failed: Array<{ snapshotId: string; reason: string }> = [];
+    results.forEach((res, i) => {
+      const snapshotId = snapshotIds[i];
+      if (res.status === "fulfilled" && res.value) {
+        rejectedCount += 1;
+      } else if (res.status === "rejected") {
+        failed.push({
+          snapshotId,
+          reason: res.reason instanceof Error ? res.reason.message : "unknown_error",
+        });
+      } else {
+        failed.push({ snapshotId, reason: "unknown_error" });
+      }
+    });
+    return jsonResponse({ rejectedCount, failed });
+  });
+
+  // 11. GET /workspace/:id/agent-snapshots?cursor=&limit=&status=
+  //     Phase 6.9: paginated history of agent snapshots. Cursor is the
+  //     `createdAt` of the last row from the previous page; pass
+  //     `status` to filter. Used by the Review tab's History inner tab.
+  addRoute(routes, "GET", "/workspace/:id/agent-snapshots", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const limitRaw = ctx.url.searchParams.get("limit");
+    const beforeRaw = ctx.url.searchParams.get("before");
+    const statusRaw = ctx.url.searchParams.get("status");
+    const status =
+      statusRaw === "pending" || statusRaw === "approved" || statusRaw === "rejected"
+        ? statusRaw
+        : undefined;
+    const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw) || 50)) : 50;
+    const before = beforeRaw ? Number(beforeRaw) : undefined;
+    const items = await store.listAgentSnapshots(workspace.id, {
+      status,
+      limit: limit + 1,
+      before: Number.isFinite(before) ? before : undefined,
+    });
+    const hasMore = items.length > limit;
+    const trimmed = hasMore ? items.slice(0, limit) : items;
+    const nextCursor =
+      hasMore && trimmed.length > 0 ? trimmed[trimmed.length - 1].createdAt : null;
+    return jsonResponse({ items: trimmed, nextCursor });
   });
 }
 

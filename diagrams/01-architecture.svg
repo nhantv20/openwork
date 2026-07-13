@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 780" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f0f1a"/><stop offset="100%" stop-color="#1a1a2e"/></linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4f46e5"/><stop offset="100%" stop-color="#6366f1"/></linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#065f46"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#5b21b6"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/></filter>
+  </defs>
+  <rect width="1100" height="780" fill="url(#bg)" rx="12"/>
+
+  <!-- Title -->
+  <text x="550" y="32" text-anchor="middle" fill="#c7d2fe" font-size="16" font-weight="700">Kien truc OpenWork Fork</text>
+  <text x="550" y="50" text-anchor="middle" fill="#94a3b8" font-size="11">OpenCode engine (xanh duong) + Module port tu AionUi (xanh la)</text>
+
+  <!-- User -->
+  <rect x="465" y="65" width="170" height="40" rx="8" fill="#312e81" stroke="#6366f1" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="550" y="89" text-anchor="middle" fill="#e0e7ff" font-size="13" font-weight="600">User</text>
+  <text x="550" y="100" text-anchor="middle" fill="#a5b4fc" font-size="9">Electron Desktop App</text>
+
+  <!-- Arrow -->
+  <line x1="550" y1="105" x2="550" y2="125" stroke="#4f46e5" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <defs><marker id="arrowBlue" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4f46e5"/></marker></defs>
+
+  <!-- Electron Main Process Box -->
+  <rect x="60" y="130" width="980" height="125" rx="10" fill="#1a1a2e" stroke="#2d2d4a" stroke-width="1.5"/>
+  <text x="80" y="152" fill="#818cf8" font-size="12" font-weight="600">Electron Main Process</text>
+
+  <rect x="80" y="160" width="280" height="80" rx="6" fill="#1e1b4b" stroke="#4f46e5" stroke-width="1"/>
+  <text x="220" y="183" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">IPC Bridge</text>
+  <text x="220" y="196" text-anchor="middle" fill="#94a3b8" font-size="10">desktopCommandHandlers (60+ commands)</text>
+  <text x="220" y="209" text-anchor="middle" fill="#94a3b8" font-size="10">preload.mjs / contextBridge</text>
+  <text x="220" y="222" text-anchor="middle" fill="#94a3b8" font-size="10">UI Control Server (/snapshot, /execute)</text>
+
+  <!-- Arrow -->
+  <line x1="550" y1="128" x2="550" y2="140" stroke="#4f46e5" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="550" y1="140" x2="220" y2="140" stroke="#4f46e5" stroke-width="1.5"/>
+  <line x1="220" y1="140" x2="220" y2="160" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+
+  <!-- Arrow from IPC to Renderer -->
+  <line x1="220" y1="240" x2="220" y2="275" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <text x="230" y="262" fill="#64748b" font-size="9">ipcRenderer.invoke</text>
+
+  <!-- Renderer Box -->
+  <rect x="60" y="280" width="500" height="200" rx="10" fill="#1a1a2e" stroke="#2d2d4a" stroke-width="1.5"/>
+  <text x="80" y="302" fill="#818cf8" font-size="12" font-weight="600">Renderer - React SPA (apps/app)</text>
+
+  <!-- React Core -->
+  <rect x="80" y="312" width="230" height="85" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="195" y="333" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">React 19 + Vite 6</text>
+  <text x="195" y="348" text-anchor="middle" fill="#94a3b8" font-size="9">Tailwind CSS + shadcn/ui</text>
+  <text x="195" y="361" text-anchor="middle" fill="#94a3b8" font-size="9">Zustand + TanStack Query</text>
+  <text x="195" y="374" text-anchor="middle" fill="#94a3b8" font-size="9">React Router v7</text>
+  <text x="195" y="387" text-anchor="middle" fill="#94a3b8" font-size="9">@opencode-ai/sdk</text>
+
+  <!-- New: Preview Layer -->
+  <rect x="325" y="312" width="220" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4"/>
+  <rect x="333" y="316" width="44" height="14" rx="3" fill="#059669"/><text x="355" y="326" text-anchor="middle" fill="#d1fae5" font-size="8" font-weight="700">NEW</text>
+  <text x="435" y="336" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">File Preview Layer</text>
+  <text x="435" y="350" text-anchor="middle" fill="#a7f3d0" font-size="9">SlidesPreview (PPTX)</text>
+  <text x="435" y="362" text-anchor="middle" fill="#a7f3d0" font-size="9">DocumentPreview (DOCX)</text>
+  <text x="435" y="374" text-anchor="middle" fill="#a7f3d0" font-size="9">PDF / Excel / Code / Diff</text>
+  <text x="435" y="386" text-anchor="middle" fill="#a7f3d0" font-size="9">Multi-tab bar</text>
+
+  <!-- Skills Panel -->
+  <rect x="80" y="408" width="465" height="58" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4"/>
+  <rect x="88" y="412" width="44" height="14" rx="3" fill="#059669"/><text x="110" y="422" text-anchor="middle" fill="#d1fae5" font-size="8" font-weight="700">NEW</text>
+  <text x="312" y="433" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Skills Panel - Research Assistant UI</text>
+  <text x="312" y="448" text-anchor="middle" fill="#a7f3d0" font-size="9">Skill files (.opencode/skills/*/SKILL.md) + Research workflow UI</text>
+  <text x="312" y="460" text-anchor="middle" fill="#a7f3d0" font-size="9">Skill triggers, file classification, research notes</text>
+
+  <!-- OpenCode Engine Box -->
+  <rect x="590" y="280" width="440" height="200" rx="10" fill="#1a1a2e" stroke="#2d2d4a" stroke-width="1.5"/>
+  <text x="610" y="302" fill="#818cf8" font-size="12" font-weight="600">OpenCode Engine</text>
+
+  <rect x="610" y="312" width="200" height="85" rx="6" fill="#1e1b4b" stroke="#4f46e5" stroke-width="1.5"/>
+  <text x="710" y="336" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">OpenCode CLI</text>
+  <text x="710" y="352" text-anchor="middle" fill="#94a3b8" font-size="10">Rust - MIT - 16.8k★</text>
+  <text x="710" y="366" text-anchor="middle" fill="#94a3b8" font-size="9">HTTP API @ 127.0.0.1</text>
+  <text x="710" y="380" text-anchor="middle" fill="#94a3b8" font-size="9">Sidecar binary</text>
+  <text x="710" y="394" text-anchor="middle" fill="#94a3b8" font-size="9">Ejectable</text>
+
+  <rect x="825" y="312" width="190" height="85" rx="6" fill="#1e1b4b" stroke="#4f46e5" stroke-width="1"/>
+  <text x="920" y="336" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">Built-in Tools</text>
+  <text x="920" y="352" text-anchor="middle" fill="#94a3b8" font-size="9">bash, edit</text>
+  <text x="920" y="365" text-anchor="middle" fill="#94a3b8" font-size="9">LSP, glob, grep</text>
+  <text x="920" y="378" text-anchor="middle" fill="#94a3b8" font-size="9">todowrite, question</text>
+  <text x="920" y="391" text-anchor="middle" fill="#94a3b8" font-size="9">browser, webfetch</text>
+
+  <!-- Arrow from IPC to OpenCode -->
+  <line x1="400" y1="210" x2="710" y2="210" stroke="#4f46e5" stroke-width="1.5"/>
+  <line x1="710" y1="210" x2="710" y2="280" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#arrowBlue)"/>
+  <text x="480" y="204" fill="#64748b" font-size="9">spawns / manages</text>
+
+  <!-- Arrow from OpenCode SDK to React -->
+  <line x1="610" y1="355" x2="550" y2="355" stroke="#4f46e5" stroke-width="1" stroke-dasharray="3"/>
+
+  <!-- Ported from AionUi Box -->
+  <rect x="60" y="500" width="970" height="130" rx="10" fill="#1a1a2e" stroke="#2d2d4a" stroke-width="1.5"/>
+  <text x="80" y="522" fill="#10b981" font-size="12" font-weight="600">Ported from AionUi</text>
+
+  <rect x="80" y="532" width="185" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="172" y="556" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Preview Components</text>
+  <text x="172" y="572" text-anchor="middle" fill="#a7f3d0" font-size="9">PptViewer (pptx2json)</text>
+  <text x="172" y="585" text-anchor="middle" fill="#a7f3d0" font-size="9">ExcelViewer (xlsx)</text>
+  <text x="172" y="598" text-anchor="middle" fill="#a7f3d0" font-size="9">PDFViewer</text>
+  <text x="172" y="611" text-anchor="middle" fill="#a7f3d0" font-size="9">DiffViewer (diff2html)</text>
+
+  <rect x="280" y="532" width="170" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="365" y="556" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">OfficeCLI</text>
+  <text x="365" y="572" text-anchor="middle" fill="#a7f3d0" font-size="9">PPTX → HTML</text>
+  <text x="365" y="585" text-anchor="middle" fill="#a7f3d0" font-size="9">DOCX → HTML</text>
+  <text x="365" y="598" text-anchor="middle" fill="#a7f3d0" font-size="9">XLSX → HTML</text>
+  <text x="365" y="611" text-anchor="middle" fill="#a7f3d0" font-size="9">CLI binary</text>
+
+  <rect x="465" y="532" width="170" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="550" y="556" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Mammoth</text>
+  <text x="550" y="572" text-anchor="middle" fill="#a7f3d0" font-size="9">DOCX → HTML</text>
+  <text x="550" y="585" text-anchor="middle" fill="#a7f3d0" font-size="9">Table / heading / style</text>
+  <text x="550" y="598" text-anchor="middle" fill="#a7f3d0" font-size="9">Fallback khi ko co CLI</text>
+
+  <rect x="650" y="532" width="170" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="735" y="556" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Shiki</text>
+  <text x="735" y="572" text-anchor="middle" fill="#a7f3d0" font-size="9">Syntax Highlight</text>
+  <text x="735" y="585" text-anchor="middle" fill="#a7f3d0" font-size="9">30+ ngon ngu</text>
+  <text x="735" y="598" text-anchor="middle" fill="#a7f3d0" font-size="9">Code preview</text>
+
+  <rect x="835" y="532" width="180" height="85" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="925" y="556" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Skill Files</text>
+  <text x="925" y="572" text-anchor="middle" fill="#a7f3d0" font-size="9">.opencode/skills/*/</text>
+  <text x="925" y="585" text-anchor="middle" fill="#a7f3d0" font-size="9">SKILL.md</text>
+  <text x="925" y="598" text-anchor="middle" fill="#a7f3d0" font-size="9">Triggers / Prompts</text>
+
+  <!-- Connections between layers -->
+  <line x1="310" y1="397" x2="172" y2="500" stroke="#10b981" stroke-width="1" stroke-dasharray="4" opacity="0.5"/>
+  <line x1="312" y1="466" x2="925" y2="500" stroke="#10b981" stroke-width="1" stroke-dasharray="4" opacity="0.5"/>
+
+  <!-- Legend -->
+  <rect x="60" y="648" width="12" height="12" rx="2" fill="#4f46e5"/><text x="78" y="658" fill="#94a3b8" font-size="10">OpenWork / OpenCode hien tai</text>
+  <rect x="60" y="666" width="12" height="12" rx="2" fill="#059669"/><text x="78" y="676" fill="#94a3b8" font-size="10">Module port tu AionUi (NEW)</text>
+</svg>

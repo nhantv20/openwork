@@ -90,7 +90,52 @@ export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean 
   }
   const lowered = relativePath.toLowerCase();
   const ext = extname(lowered);
-  if (!ext && !lowered.includes(".")) {
+  if (ext) {
+    // Reject obvious binary / archive / executable extensions even when the
+    // path itself isn't on the security blocklist. The intent of this helper
+    // is to flag files safe to read as UTF-8 text, not to permit every
+    // extension that isn't credentials.
+    const binaryExtensions = new Set([
+      ".bin",
+      ".exe",
+      ".dll",
+      ".so",
+      ".dylib",
+      ".zip",
+      ".tar",
+      ".gz",
+      ".tgz",
+      ".bz2",
+      ".7z",
+      ".rar",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp",
+      ".ico",
+      ".pdf",
+      ".wasm",
+      ".class",
+      ".jar",
+      ".pyc",
+      ".o",
+      ".a",
+      ".lib",
+      ".mp3",
+      ".mp4",
+      ".mov",
+      ".avi",
+      ".mkv",
+      ".wav",
+      ".flac",
+    ]);
+    if (binaryExtensions.has(ext)) {
+      return false;
+    }
+    return true;
+  }
+  if (!lowered.includes(".")) {
     return lowered.length > 0 && !lowered.endsWith("/");
   }
   return true;

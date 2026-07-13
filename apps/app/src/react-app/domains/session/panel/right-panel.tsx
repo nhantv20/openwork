@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { FileText, Folder, Globe, Mic2, MoreHorizontal, Settings2, X } from "lucide-react";
+import { FileText, Folder, GitCompare, Globe, Mic2, MoreHorizontal, Settings2, X } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useUiStateStore } from "../../../shell/ui-state-store";
 import type { SidePanelItem } from "../../../shell/ui-state-store";
 import { FileExplorerPanel } from "./file-explorer-panel";
+import { ReviewPanel } from "./review-panel";
 import { SidePanel } from "./side-panel";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { VoicePanel } from "../voice/voice-panel";
@@ -23,9 +24,10 @@ import {
   useSessionActiveTabId,
   useSessionPanelTabs,
 } from "./panel-tab-store";
+import { useSessionPending } from "./review-store";
 import { classifyOpenTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 
-type RightPanelMode = "files" | "preview" | "browser";
+type RightPanelMode = "files" | "preview" | "review";
 
 const SHORTCUT_HINT = navigator.platform.toLowerCase().includes("mac")
   ? "⌘⌥1 · ⌘⌥2 · ⌘⌥3"
@@ -34,7 +36,10 @@ const SHORTCUT_HINT = navigator.platform.toLowerCase().includes("mac")
 const PRIMARY_MODES: ReadonlyArray<{ mode: RightPanelMode; label: string; icon: React.ComponentType<{ size?: number }>; shortcut: string }> = [
   { mode: "files", label: "Files", icon: Folder, shortcut: SHORTCUT_HINT.split(" · ")[0] },
   { mode: "preview", label: "Preview", icon: FileText, shortcut: SHORTCUT_HINT.split(" · ")[1] },
-  { mode: "browser", label: "Browser", icon: Globe, shortcut: SHORTCUT_HINT.split(" · ")[2] },
+  // Phase 6.9: Review tab replaces Browser in the right-panel header.
+  // Browser is still reachable via the More menu (and the rail button
+  // when the agent flows need to surface a web view).
+  { mode: "review", label: "Review", icon: GitCompare, shortcut: SHORTCUT_HINT.split(" · ")[2] },
 ];
 
 export type RightPanelProps = {
@@ -52,15 +57,15 @@ export type RightPanelProps = {
 };
 
 /**
- * Right side panel with a 3-button toggle header (Files / Preview / Browser).
+ * Right side panel with a 3-button toggle header (Files / Preview / Review).
  *
  * Behaviour:
  * - Click an inactive button → switch to that mode.
  * - Click the active button → close the panel (set state to null).
  * - Click × → close the panel.
- * - `extensions` and `voice` modes are also supported (rendered in the body)
- *   but the toggle buttons in the header only cover the 3 primary modes.
- *   Voice/Extensions are still reachable via the existing rail buttons.
+ * - The Browser lives on the sidebar rail (L5) and via the More menu
+ *   in the header; it shares the legacy `panel` slot with artifact
+ *   tabs. Voice/Extensions are reachable via the same More menu.
  */
 export function RightPanel({
   sessionId,
@@ -75,6 +80,10 @@ export function RightPanel({
   const mode = useUiStateStore((state) => state.sidePanelState[sessionId] ?? null);
   const setMode = useUiStateStore((state) => state.setSidePanelState);
   const toggleModeState = useUiStateStore((state) => state.toggleSidePanelState);
+  // Phase 6.9: badge count for the Review tab. Pulse class is applied
+  // when the user has not yet opened the tab for the most recent
+  // batch of pending edits (see review-store for the seen logic).
+  const reviewPending = useSessionPending(sessionId);
 
   // Read the active artifact tab so we can show ArtifactPanel full-width in
   // Preview mode (no more side-by-side tree — the tree lives in Files mode).
@@ -94,19 +103,10 @@ export function RightPanel({
 
   const toggleMode = React.useCallback(
     (target: RightPanelMode) => {
-      // "browser" shares the same panel slot as the legacy "panel" mode —
-      // both render the SidePanel with browser/artifact tabs.
-      if (target === "browser") {
-        // Make sure there's at least one browser tab so the panel isn't empty.
-        const hasBrowserTab = usePanelTabStore
-          .getState()
-          .sessions[sessionId]?.tabs.some((tab) => tab.type === "browser");
-        if (!hasBrowserTab && typeof window !== "undefined") {
-          void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
-        }
-        toggleModeState(sessionId, "panel");
-        return;
-      }
+      // "review" lives in its own side-panel slot. Toggling it opens
+      // the ReviewPanel; clicking it again closes the whole right
+      // panel. We don't alias it to "panel" because the Browser
+      // still owns the legacy "panel" slot (see toggleSidePanelState).
       toggleModeState(sessionId, target);
     },
     [sessionId, toggleModeState],
@@ -146,8 +146,9 @@ export function RightPanel({
         <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background px-2 mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <div className="flex flex-1 items-center gap-0.5">
             {PRIMARY_MODES.map(({ mode: m, label, icon: Icon, shortcut }) => {
-              // "browser" lives in the "panel" slot — see toggleMode.
-              const active = m === "browser" ? mode === "panel" : mode === m;
+              const active = mode === m;
+              const isReview = m === "review";
+              const showBadge = isReview && reviewPending.fileCount > 0;
               return (
                 <Tooltip key={m}>
                   <TooltipTrigger
@@ -156,15 +157,30 @@ export function RightPanel({
                         variant={active ? "default" : "ghost"}
                         size="sm"
                         className={cn(
-                          "h-7 gap-1.5 px-2 text-xs",
+                          "relative h-7 gap-1.5 px-2 text-xs",
                           !active && "text-muted-foreground hover:text-foreground",
                         )}
                         onClick={() => toggleMode(m)}
-                        aria-label={`${label} (${shortcut})`}
+                        aria-label={
+                          showBadge
+                            ? `${label} (${reviewPending.fileCount} pending) · ${shortcut}`
+                            : `${label} (${shortcut})`
+                        }
                         aria-pressed={active}
                       >
                         <Icon size={14} />
                         <span className="hidden md:inline">{label}</span>
+                        {showBadge ? (
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white",
+                              !reviewPending.seen && "animate-pulse",
+                            )}
+                          >
+                            {reviewPending.fileCount > 99 ? "99+" : reviewPending.fileCount}
+                          </span>
+                        ) : null}
                       </Button>
                     )}
                   />
@@ -195,6 +211,23 @@ export function RightPanel({
               <TooltipContent>Voice · Extensions</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Browser lives in the "panel" slot (SidePanel).
+                  // Make sure there's at least one browser tab so the
+                  // panel isn't empty.
+                  const hasBrowserTab = usePanelTabStore
+                    .getState()
+                    .sessions[sessionId]?.tabs.some((tab) => tab.type === "browser");
+                  if (!hasBrowserTab && typeof window !== "undefined") {
+                    void window.__OPENWORK_ELECTRON__?.browser?.createTab?.();
+                  }
+                  setModeForSession("panel");
+                }}
+              >
+                <Globe />
+                {mode === "panel" ? "Close Browser" : "Open Browser"}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => setModeForSession(mode === "voice" ? null : "voice")}
               >
@@ -267,6 +300,13 @@ export function RightPanel({
                 </p>
               </div>
             )
+          ) : mode === "review" ? (
+            <ReviewPanel
+              sessionId={sessionId}
+              client={client}
+              workspaceId={workspaceId}
+              workspaceRoot={workspaceRoot}
+            />
           ) : mode === "panel" ? (
             <SidePanel
               sessionId={sessionId}

@@ -1,6 +1,6 @@
 ---
 name: drawio-aws
-description: Use when the user asks for an AWS architecture diagram — VPC / networking, multi-AZ, event-driven, landing zone, serverless pipeline, IAM topology, or any diagram built with AWS service icons. Builds with the declarative drawio-ai layout engine using ground-truth mxgraph.aws4 stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request.
+description: "Use when the user asks for an AWS architecture diagram — VPC / networking, multi-AZ, event-driven, landing zone, serverless pipeline, IAM topology, or any diagram built with AWS service icons. Builds with the declarative drawio-ai layout engine using ground-truth mxgraph.aws4 stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request."
 version: 1.0.0
 license: MIT
 upstream: sparklabx/drawio-ai-kit@v1.0.0 (814d97e)

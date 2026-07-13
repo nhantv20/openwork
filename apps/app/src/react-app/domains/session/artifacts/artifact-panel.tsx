@@ -20,6 +20,7 @@ import { SlidesViewer } from "./viewers/slides-viewer";
 import { FileHistoryPanel } from "./file-history-panel";
 import { GitReviewTab } from "./git-review-tab";
 import { useGitStatus } from "./hooks/use-git-status";
+import { useFileHistory } from "./hooks/use-file-history";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -127,6 +128,26 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
   // quick-access — it opens the History tab without routing through
   // the strip first.
   const [activeTab, setActiveTab] = useState<"preview" | "review" | "history">("preview");
+  // Phase 6.8: which filePaths have had their agent-review banner
+  // dismissed this session. Cleared on workspace switch so the user
+  // gets the banner back next time they open a fresh workspace.
+  const [dismissedAgentBanners, setDismissedAgentBanners] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Phase 6.8: inline agent-vs-current diff shown when the user
+  // clicks "Show diff" on the banner. Holds the snapshot id we're
+  // diffing against; the diff content itself is fetched separately.
+  const [agentDiff, setAgentDiff] = useState<{
+    snapshotId: string;
+    diff: string;
+  } | null>(null);
+  // Phase 6.8: use the existing history hook so we can call
+  // `restoreSnapshot` from the banner's Undo button.
+  const { restoreSnapshot, isRestoring } = useFileHistory({
+    client,
+    workspaceId,
+    filePath: target.kind === "file" ? target.value : null,
+  });
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
@@ -163,57 +184,10 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     staleTime: Infinity,
   });
 
-  // Auto-reload: poll file mtime and invalidate query when it changes.
-  // Pauses when tab is hidden or when user is editing the artifact inline.
-  useEffect(() => {
-    if (target.kind !== "file") return;
-    if (isTextContent(target) && editing) return;
-    const currentUpdatedAt = data?.updatedAt;
-    if (currentUpdatedAt == null) return;
-
-    let cancelled = false;
-
-    const poll = async () => {
-      if (cancelled) return;
-      if (document.visibilityState !== "visible") return;
-      try {
-        const stat = await client.statWorkspaceFile(workspaceId, target.value);
-        if (cancelled) return;
-        if (stat.updatedAt != null && stat.updatedAt > currentUpdatedAt) {
-          await queryClient.invalidateQueries({
-            queryKey: ["artifact-panel", workspaceId, target.id],
-          });
-          toast.info(`Đã cập nhật: ${target.name}`, {
-            description: "File thay đổi trên đĩa, preview đã tự reload.",
-            duration: 3000,
-          });
-        }
-      } catch {
-        // File may be missing, locked, or workspace disconnected — ignore.
-      }
-    };
-
-    const interval = window.setInterval(poll, 3000);
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void poll();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [
-    client,
-    workspaceId,
-    target,
-    data?.updatedAt,
-    editing,
-    queryClient,
-  ]);
+  // Auto-reload: disabled. Users reload manually via the header Reload button
+  // or Cmd/Ctrl+Shift+R (handled by the listener below). The previous mtime
+  // poll was removed because it caused surprise overwrites when an external
+  // tool (agent, editor, linter) wrote the file while the user was reading it.
 
   // Listen for the global Cmd/Ctrl+Shift+R reload event dispatched by the
   // shell. We invalidate the artifact query instead of touching the on-disk
@@ -252,6 +226,11 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
     // different file so a previous file's Review/History tab state
     // doesn't bleed across files.
     setActiveTab("preview");
+    // Phase 6.8: drop any inline agent diff and the dismissed set so
+    // each freshly-opened file gets its own banner session. The
+    // dismissed set is per-session, not persistent, so the banner
+    // reappears for any file the user has never dismissed.
+    setAgentDiff(null);
   }, [target.id, workspaceId]);
 
   // Phase 6.6: gate the Review tab on whether the workspace is a git
@@ -599,11 +578,33 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
           </div>
         </div>
       </div>
-      {/* Phase 6.6: view-mode tab strip. Renders below the file header,
-          above the body. Review tab is hidden when the workspace is not
-          a git repo so the strip stays clean. Switching tabs does NOT
-          unmount the preview tree (preserves code editor scroll, lazy
-          loaders, etc.) — only the body content swaps. */}
+      {/* Phase 6.9: the legacy per-file <AgentReviewBanner /> is
+           removed — all approval/review flows now live in the right
+           panel's Review tab. The banner mount point is intentionally
+           left blank so the surrounding layout doesn't shift. The
+           `agentDiff` / `dismissedAgentBanners` state below is kept
+           so existing inline-diff behaviour isn't disturbed. */}
+      {target.kind === "file" ? null : null}
+      {agentDiff && target.kind === "file" ? (
+        <div
+          className="shrink-0 border-b border-border bg-background/60"
+          data-testid="agent-review-inline-diff"
+        >
+          <div className="flex items-center justify-between px-4 py-1.5 text-[10px] text-muted-foreground">
+            <span>Agent snapshot {agentDiff.snapshotId.slice(0, 12)}… vs current</span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => setAgentDiff(null)}
+              data-testid="agent-review-inline-diff-close"
+              aria-label="Close diff"
+            >
+              ×
+            </button>
+          </div>
+          <DiffViewer diff={agentDiff.diff} className="max-h-[40vh] overflow-auto px-3 py-2" />
+        </div>
+      ) : null}
       {target.kind === "file" ? (
         <div className="shrink-0 border-b border-border bg-background/40" data-testid="artifact-tab-strip">
           <div className="flex h-9 items-center gap-1 px-4 text-xs">

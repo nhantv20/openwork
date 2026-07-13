@@ -31,7 +31,9 @@ asar: true
 asarUnpack:
   - node_modules/.pnpm/@lydell+node-pty*/**
   - node_modules/node-pty/**
-npmRebuild: false
+  - node_modules/better-sqlite3/**
+  - node_modules/.pnpm/better-sqlite3*/**
+npmRebuild: true
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
 # electron-updater feed. Matches the existing release workflow's GitHub target

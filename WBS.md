@@ -83,23 +83,30 @@
 
 ---
 
-## Phase 3: Scheduled Tasks (Cron) ❌ NONE (TODO Priority 1)
+## Phase 3: Scheduled Tasks (Cron) ✅ DONE (2026-07-13)
 
 > **Mục tiêu:** Cron task 24/7, agent chạy định kỳ  
 > **Reference AionUi để port:** 🔗 `aionui:packages/desktop/src/renderer/pages/cron/`
 
-### Phải làm
+### Trạng thái: ✅ DONE — verified end-to-end 09:28 JST 2026-07-13
 
-| Task | Effort | Reference để phát triển | Mô tả |
-|------|--------|------------------------|-------|
-| 📌 DB migration: cron_jobs | ~2h | 🔗 `aionui:packages/desktop/src/renderer/pages/cron/cronUtils.ts` | Schema: id, user_id, cron_expr, prompt, enabled... |
-| 📌 Cron runner service | ~8h | 🔗 `aionui:packages/desktop/src/process/utils/cronService.ts` + 📄 `apps/server/package.json` (thêm croner) | Bun server cron |
-| 📌 CRUD API routes | ~4h | 🔗 `aionui:packages/desktop/src/renderer/pages/cron/useCronJobs.ts` + 📄 `apps/server/src/routes/sessions.ts` (pattern) | `GET/POST/PUT/DELETE /api/cron` |
-| 📌 Settings UI page | ~12h | 🔗 `aionui:packages/desktop/src/renderer/pages/cron/ScheduledTasksPage/index.tsx` + `CreateTaskDialog.tsx` | Create/edit/enable/disable |
-| 📌 Execution engine | ~8h | 🔗 `aionui:packages/desktop/src/renderer/pages/cron/components/CronJobManager.tsx` | Gửi prompt vào conversation đúng lịch |
-| 📌 E2E test | ~4h | — | Verify cron chạy đúng giờ |
+Smoke test thật: `POST /api/scheduled` (cron `* * * * *`) → 201 → scheduler register in-process → sau 60s runner gọi OpenCode SDK → session tạo thật → ghi `scheduled_job_runs` row.
 
-**Tổng effort: ~38h (~1 tuần)**
+| Task | Status | File / evidence |
+|------|--------|-----------------|
+| ✅ DB migration: scheduled_jobs + scheduled_job_runs | Done | `apps/server/src/scheduled/repo.ts:218, 249, 407, 438` — 2 dialects × 2 tables `CREATE TABLE IF NOT EXISTS` |
+| ✅ Cron runner service (croner) | Done | `apps/server/src/scheduled/scheduler.ts` (249 dòng) + 286-dòng test, 100% pass |
+| ✅ Execution engine (session + chat) | Done | `apps/server/src/scheduled/runner.ts` (426 dòng) + 427-dòng test, dùng `client.session.prompt()` per plan §4.2 correction |
+| ✅ CRUD API routes `/api/scheduled/*` | Done | `apps/server/src/routes/scheduled.ts` (469 dòng) — 7 endpoint theo spec plan §3.5 |
+| ✅ Settings UI page + dialog + drawer | Done | `apps/app/src/react-app/domains/settings/scheduled/{scheduled-tasks-view,scheduled-task-dialog,scheduled-task-detail-drawer,cron-helpers}.tsx` |
+| ✅ Wire sidebar "Scheduled" item | Done | M1 wired ở `session-route.tsx`; tab "scheduled" trong `settings-page.tsx:69, 110, 163` |
+| ✅ Catch-up logic (≤5 phút → run-once) | Done | `scheduler.ts` boot logic per decision #7 |
+| ✅ Skip-overlap concurrency | Done | `runner.ts` per decision #9 |
+| ✅ i18n 11 locale (en/vi/ca/es/fr/ja/pt-BR/ru/th/zh) | Done | 55 key mỗi locale, verified 11/11 |
+| ✅ Typecheck | Done | `pnpm typecheck` app + server = 0 errors |
+| ⚠️ E2E test (Daytona fraimz) | TODO | `evals/flows/phase-3-scheduled-*.flow.mjs` chưa tạo — task 2.11 plan §3.8 |
+
+**Tổng: 10/11 done, 1 còn (E2E flow file)**
 
 ---
 
@@ -339,7 +346,7 @@
 |-------|---------|--------|----------------|-------------|
 | 1 | File Preview | ✅ 90% | ~4h | — |
 | 2 | Skills / Assistants | ✅ 85% | ~20h | 🟢 Trung bình |
-| **3** | **Scheduled Tasks** | **❌ 0%** | **~38h** | **🔴 Cao** |
+| **3** | **Scheduled Tasks** | **✅ DONE** | **E2E flow file** | **🟢 Polish** |
 | 4 | Remote Access | ⚠️ 15% | ~44h | ⚪ Thấp |
 | 5 | File Tree | ✅ 85% | ~8h | — |
 | **6** | **Version History** | **⚠️ 5%** | **~26h** | **🔴 CAO NHẤT** |
@@ -367,8 +374,7 @@ TUẦN SAU (Priority 2):
   │  🔗 imageGenCore.ts (AionUi) → tao SKILL.md                 │
   └─────────────────────────────────────────────────────────────┘
   ┌─ Phase 3: Scheduled Tasks ──────────────────────────────────┐
-  │  🔗 cronUtils.ts + useCronJobs.ts (AionUi)                  │  ~38h
-  │  → DB migration → croner → API → UI                         │
+  │  ✅ DONE 2026-07-13  — còn E2E flow file (fraimz)          │  ~1h
   └─────────────────────────────────────────────────────────────┘
 
 THÁNG NÀY (Priority 3):

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f0f1a"/><stop offset="100%" stop-color="#1a1a2e"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/></filter>
+  </defs>
+  <rect width="1100" height="720" fill="url(#bg)" rx="12"/>
+
+  <text x="550" y="32" text-anchor="middle" fill="#c7d2fe" font-size="16" font-weight="700">Quyet dinh Fork — Phan tich 3 phuong an</text>
+  <text x="550" y="50" text-anchor="middle" fill="#94a3b8" font-size="11">Fork OpenWork (xanh la) + Port tinh nang tu AionUi = phuong an toi uu</text>
+
+  <!-- Center: Decision node -->
+  <rect x="420" y="70" width="260" height="50" rx="25" fill="#4338ca" stroke="#818cf8" stroke-width="2" filter="url(#shadow)"/>
+  <text x="550" y="100" text-anchor="middle" fill="#e0e7ff" font-size="14" font-weight="700">Lua chon phuong an</text>
+
+  <!-- Arrows from center -->
+  <line x1="550" y1="120" x2="550" y2="150" stroke="#4f46e5" stroke-width="2"/>
+  <line x1="550" y1="150" x2="200" y2="150" stroke="#10b981" stroke-width="2"/>
+  <line x1="550" y1="150" x2="550" y2="150" stroke="#4f46e5" stroke-width="2"/>
+  <line x1="550" y1="150" x2="900" y2="150" stroke="#ef4444" stroke-width="2"/>
+  <line x1="200" y1="150" x2="200" y2="175" stroke="#10b981" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <line x1="550" y1="150" x2="550" y2="175" stroke="#ef4444" stroke-width="2" marker-end="url(#arrowRed)"/>
+  <line x1="900" y1="150" x2="900" y2="175" stroke="#ef4444" stroke-width="2" marker-end="url(#arrowRed)"/>
+
+  <defs>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/></marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444"/></marker>
+  </defs>
+
+  <!-- Option 1: Fork OpenWork (GREEN) -->
+  <rect x="40" y="180" width="320" height="44" rx="10" fill="#065f46" stroke="#10b981" stroke-width="2"/>
+  <text x="200" y="207" text-anchor="middle" fill="#d1fae5" font-size="14" font-weight="700">1. Fork OpenWork ✅</text>
+
+  <rect x="40" y="232" width="320" height="50" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="200" y="252" text-anchor="middle" fill="#6ee7b7" font-size="12">✅ Giu engine OpenCode manh</text>
+  <text x="200" y="270" text-anchor="middle" fill="#a7f3d0" font-size="10">LSP, plugins, 16.8k★ community</text>
+
+  <rect x="40" y="290" width="320" height="50" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="200" y="310" text-anchor="middle" fill="#6ee7b7" font-size="12">✅ Kien truc gon (~1.884 files)</text>
+  <text x="200" y="328" text-anchor="middle" fill="#a7f3d0" font-size="10">UI ↔ Engine tach biet qua SDK</text>
+
+  <rect x="40" y="348" width="320" height="50" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="200" y="368" text-anchor="middle" fill="#6ee7b7" font-size="12">✅ MIT License — fork tu do</text>
+  <text x="200" y="386" text-anchor="middle" fill="#a7f3d0" font-size="10">Port co chon loc tu AionUi</text>
+
+  <rect x="40" y="406" width="320" height="50" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+  <text x="200" y="426" text-anchor="middle" fill="#6ee7b7" font-size="12">✅ Ejectable — khong lock-in</text>
+  <text x="200" y="444" text-anchor="middle" fill="#a7f3d0" font-size="10">Chay OpenCode CLI doc lap</text>
+
+  <!-- Arrow to final decision -->
+  <line x1="200" y1="456" x2="200" y2="500" stroke="#10b981" stroke-width="2"/>
+  <line x1="200" y1="500" x2="550" y2="500" stroke="#10b981" stroke-width="2"/>
+  <line x1="550" y1="500" x2="550" y2="530" stroke="#10b981" stroke-width="2" marker-end="url(#arrowGreen)"/>
+
+  <!-- Option 2: Fork AionUi (RED) -->
+  <rect x="390" y="180" width="320" height="44" rx="10" fill="#7f1d1d" stroke="#ef4444" stroke-width="2"/>
+  <text x="550" y="207" text-anchor="middle" fill="#fecaca" font-size="14" font-weight="700">2. Fork AionUi ❌</text>
+
+  <rect x="390" y="232" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="550" y="252" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Aionrs engine closed source</text>
+  <text x="550" y="270" text-anchor="middle" fill="#fecaca" font-size="10">Khong the fork/sua backend</text>
+
+  <rect x="390" y="290" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="550" y="310" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Monorepo lon</text>
+  <text x="550" y="328" text-anchor="middle" fill="#fecaca" font-size="10">Nhieu package long nhau, kho maintain</text>
+
+  <rect x="390" y="348" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="550" y="368" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Apache 2.0 (kho fork thuong mai)</text>
+  <text x="550" y="386" text-anchor="middle" fill="#fecaca" font-size="10">Phai de y license khi fork</text>
+
+  <rect x="390" y="406" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="550" y="426" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Dev tools yeu</text>
+  <text x="550" y="444" text-anchor="middle" fill="#fecaca" font-size="10">Qua agent, khong co LSP native</text>
+
+  <!-- Option 3: Build from Scratch (RED) -->
+  <rect x="740" y="180" width="320" height="44" rx="10" fill="#7f1d1d" stroke="#ef4444" stroke-width="2"/>
+  <text x="900" y="207" text-anchor="middle" fill="#fecaca" font-size="14" font-weight="700">3. Build from Scratch ❌</text>
+
+  <rect x="740" y="232" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="900" y="252" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Mat 6-12 thang xay agent loop</text>
+  <text x="900" y="270" text-anchor="middle" fill="#fecaca" font-size="10">Xay tu dau qua ton thoi gian</text>
+
+  <rect x="740" y="290" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="900" y="310" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Khong co community support</text>
+  <text x="900" y="328" text-anchor="middle" fill="#fecaca" font-size="10">Phai tu xu ly moi bug</text>
+
+  <rect x="740" y="348" width="320" height="50" rx="6" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+  <text x="900" y="368" text-anchor="middle" fill="#fca5a5" font-size="12">❌ Khong kip hackathon 48h</text>
+  <text x="900" y="386" text-anchor="middle" fill="#fecaca" font-size="10">MVP khong the hoan thanh</text>
+
+  <!-- Final Decision -->
+  <rect x="250" y="535" width="600" height="65" rx="12" fill="#065f46" stroke="#10b981" stroke-width="3" filter="url(#shadow)"/>
+  <text x="550" y="562" text-anchor="middle" fill="#d1fae5" font-size="16" font-weight="700">CHON: Fork OpenWork + Port UI features tu AionUi</text>
+  <text x="550" y="582" text-anchor="middle" fill="#a7f3d0" font-size="11">Giu engine OpenCode manh (dev tools, LSP, plugins) + Them UX AionUi (preview, skills, cron)</text>
+
+  <!-- Bonus note -->
+  <rect x="250" y="618" width="600" height="55" rx="8" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="550" y="640" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">Tai sao khong dung ca 2 song song?</text>
+  <text x="550" y="658" text-anchor="middle" fill="#94a3b8" font-size="10">Phai switch context lien tuc, khong tich hop native, ton them resource</text>
+</svg>

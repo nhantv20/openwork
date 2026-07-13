@@ -240,11 +240,9 @@ describe("executeScheduledJob — happy path", () => {
     expect(run.sessionId).toBe("session-xyz");
     expect(run.startedAt).not.toBeNull();
     expect(run.finishedAt).not.toBeNull();
-    expect(create).toHaveBeenCalledWith({
-      title: "Test job",
-      agent: "build",
-      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-    });
+    // OpenCode SDK v2 SessionCreateData only accepts {parentID?, title?}.
+    // Agent + model selection is forwarded on the subsequent prompt call.
+    expect(create).toHaveBeenCalledWith({ title: "Test job" });
     expect(prompt).toHaveBeenCalledWith({
       path: { id: "session-xyz" },
       body: {
@@ -282,11 +280,7 @@ describe("executeScheduledJob — happy path", () => {
       ...baseDeps(),
       getClient: () => client,
     });
-    expect(create).toHaveBeenCalledWith({
-      title: "modeled",
-      agent: "build",
-      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-    });
+    expect(create).toHaveBeenCalledWith({ title: "modeled" });
     expect(prompt).toHaveBeenCalledWith({
       path: { id: "session-xyz" },
       body: {
@@ -304,11 +298,7 @@ describe("executeScheduledJob — happy path", () => {
       ...baseDeps(),
       getClient: () => client,
     });
-    expect(create).toHaveBeenCalledWith({
-      title: "Test job",
-      agent: "build",
-      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-    });
+    expect(create).toHaveBeenCalledWith({ title: "Test job" });
     expect(prompt).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({

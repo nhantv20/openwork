@@ -1,6 +1,6 @@
 ---
 name: drawio-azure
-description: Use when the user asks for an Azure architecture diagram — hub-spoke landing zone, Virtual WAN, hub-VNet peering, App Service + Functions, AKS, SQL/Storage, CAF-aligned topology, or any diagram built with Azure service icons. Builds with the declarative drawio-ai layout engine using ground-truth Azure stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request.
+description: "Use when the user asks for an Azure architecture diagram — hub-spoke landing zone, Virtual WAN, hub-VNet peering, App Service + Functions, AKS, SQL/Storage, CAF-aligned topology, or any diagram built with Azure service icons. Builds with the declarative drawio-ai layout engine using ground-truth Azure stencils, validates, runs a render-based vision self-check. Default output is .drawio; PNG/SVG only on request."
 version: 1.0.0
 license: MIT
 upstream: sparklabx/drawio-ai-kit@v1.0.0 (814d97e)

@@ -122,6 +122,38 @@ async function afterPack(context) {
   }
 
   signComputerUseHelper(context);
+
+  // Rebuild node-pty for the target platform to ensure native binary is available
+  rebuildNodePty(context);
+}
+
+function rebuildNodePty(context) {
+  const appPath = resolveMacAppPath(context) || context.appOutDir;
+  const asarPath = path.join(appPath, "Contents", "Resources", "app.asar");
+  
+  // Check if node_modules are unpacked (not in ASAR)
+  const nodeModulesPath = path.join(appPath, "Contents", "Resources", "node_modules");
+  const nodePtyPath = path.join(nodeModulesPath, "node-pty");
+  
+  if (!fs.existsSync(nodePtyPath)) {
+    console.log("node-pty not found in unpacked node_modules, skipping rebuild");
+    return;
+  }
+
+  console.log("Rebuilding node-pty for target platform...");
+  const result = spawnSync("npm", ["rebuild"], {
+    cwd: nodeModulesPath,
+    stdio: "inherit",
+    env: { ...process.env, npm_lifecycle_script: undefined }
+  });
+
+  if (result.error) {
+    console.warn("Failed to rebuild node-pty:", result.error);
+  } else if (result.status !== 0) {
+    console.warn("npm rebuild exited with status", result.status);
+  } else {
+    console.log("node-pty rebuilt successfully");
+  }
 }
 
 module.exports = afterPack;

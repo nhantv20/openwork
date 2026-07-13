@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MDE1 – CoworkAthon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #f1f5f9;
+    --slide-shadow: 0 20px 60px rgba(15,23,42,0.12), 0 4px 16px rgba(15,23,42,0.06);
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --border-light: #f1f5f9;
+    --primary: #4f46e5;
+    --primary-light: #818cf8;
+    --primary-bg: #eef2ff;
+    --primary-dark: #3730a3;
+    --green: #059669;
+    --green-bg: #ecfdf5;
+    --green-dark: #065f46;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --orange: #d97706;
+    --orange-bg: #fffbeb;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  /* ── STAGE (viewport wrapper) ── */
+  .stage {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* ── SLIDE DECK (16:9 container) ── */
+  .deck {
+    position: relative;
+    width: min(95vw, 1280px);
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--slide-shadow);
+    overflow: hidden;
+  }
+
+  .slides-track {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+  }
+
+  .slide {
+    min-width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 48px 64px;
+    position: relative;
+    overflow-y: auto;
+    background: var(--surface);
+  }
+
+  .slide::-webkit-scrollbar { width: 4px; }
+  .slide::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Slide number watermark ── */
+  .slide-number {
+    position: absolute;
+    bottom: 20px;
+    right: 32px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+  }
+
+  /* ── TOP BAR ── */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--border-light);
+  }
+  .top-bar .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--primary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 800;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .top-bar .logo-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  .top-bar .spacer { flex: 1; }
+  .top-bar .tag {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  h1 {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.15;
+    color: var(--text);
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .slide-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-light);
+    line-height: 1.4;
+  }
+
+  .slide-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    margin-bottom: 14px;
+    line-height: 1.6;
+    padding: 0 2px;
+  }
+
+  /* ── COVER ── */
+  .slide-cover {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background:
+      linear-gradient(135deg, var(--primary-bg) 0%, transparent 50%),
+      linear-gradient(225deg, var(--green-bg) 0%, transparent 50%),
+      var(--surface);
+  }
+  .slide-cover h1 {
+    font-size: 48px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .slide-cover .divider {
+    width: 48px; height: 3px;
+    background: var(--primary);
+    border-radius: 2px;
+    margin: 20px auto;
+  }
+  .slide-cover .meta {
+    margin-top: 32px;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .slide-cover .meta span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── TWO COLUMNS ── */
+  .cols-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    flex: 1;
+    align-content: start;
+  }
+
+  .col {
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .col-head {
+    padding: 12px 18px;
+    font-weight: 700;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .col-body { padding: 4px 0; }
+  .col-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .col-row:last-child { border-bottom: none; }
+  .col-row .key { color: var(--text-secondary); flex-shrink: 0; margin-right: 12px; }
+  .col-row .val { color: var(--text); text-align: right; }
+
+  .col-problem .col-head { background: var(--red-bg); color: var(--red); }
+  .col-problem { border-color: #fecaca; }
+  .col-opportunity .col-head { background: var(--green-bg); color: var(--green-dark); }
+  .col-opportunity { border-color: #a7f3d0; }
+
+  /* ── THREE PILLARS ── */
+  .pillars {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    flex: 1;
+    align-content: center;
+  }
+  .pillar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 24px;
+    transition: all 0.2s;
+  }
+  .pillar:hover { border-color: var(--primary-light); box-shadow: 0 4px 12px rgba(79,70,229,0.08); }
+  .pillar .icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+  .pillar h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .pillar p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  .pillar-green .icon { background: var(--green-bg); }
+  .pillar-green h3 { color: var(--green-dark); }
+  .pillar-purple .icon { background: var(--primary-bg); }
+  .pillar-purple h3 { color: var(--primary); }
+  .pillar-violet .icon { background: #f5f3ff; }
+  .pillar-violet h3 { color: #6d28d9; }
+  .pillar-violet { border-color: #e9d5ff; }
+  .pillar-violet:hover { border-color: #c084fc; }
+
+  /* ── DIAGRAM IN SLIDE ── */
+  .diagram-fit {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    padding: 4px 0;
+  }
+  .diagram-fit img, .diagram-fit svg {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    border-radius: 6px;
+  }
+
+  /* ── TIMELINE (Hackathon) ── */
+  .tl { flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+  .tl-row {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  .tl-time {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+    text-align: right;
+    padding-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tl-bar {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    background: var(--surface);
+    font-size: 13px;
+  }
+  .tl-bar strong { font-size: 13px; display: block; margin-bottom: 2px; }
+  .tl-bar p { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+  .tl-bar.highlight {
+    border-left-color: var(--green);
+    background: var(--green-bg);
+    border-color: #a7f3d0;
+  }
+  .tl-bar.highlight strong { color: var(--green-dark); }
+
+  .deliverables {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    margin-top: 10px;
+    justify-content: center;
+  }
+  .deliverables .badge {
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+  .deliverables .badge-green { background: var(--green-bg); color: var(--green-dark); }
+
+  /* ── JOURNEY (Bối cảnh) ── */
+  .journey {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 8px 0;
+  }
+  .j-item {
+    flex: 1;
+    max-width: 240px;
+  }
+  .j-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--primary);
+    opacity: 0.15;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .j-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 18px;
+    transition: all 0.2s;
+  }
+  .j-card:hover { border-color: var(--primary-light); box-shadow: 0 4px 12px rgba(79,70,229,0.08); }
+  .j-icon { font-size: 22px; margin-bottom: 8px; }
+  .j-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); line-height: 1.4; }
+  .j-card p { font-size: 11.5px; color: var(--text-secondary); line-height: 1.6; }
+
+  .j-connector {
+    width: 32px;
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    flex-shrink: 0;
+    margin-bottom: 48px;
+  }
+  .j-connector::after {
+    content: '→';
+    position: absolute;
+    right: -2px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  @media (max-width: 900px) {
+    .journey { flex-direction: column; gap: 8px; }
+    .j-item { max-width: 100%; }
+    .j-connector { width: 2px; height: 16px; margin-bottom: 0; }
+    .j-connector::after { content: '↓'; right: auto; left: 50%; top: auto; bottom: -2px; transform: translateX(-50%); }
+  }
+
+  /* ── KPI & RISK ── */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; flex: 1; align-content: start; }
+  .panel { border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 20px; }
+  .panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+
+  .kpi-list { display: flex; flex-direction: column; gap: 0; }
+  .kpi-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-light);
+  }
+  .kpi-row:last-child { border-bottom: none; }
+  .kpi-num {
+    font-size: 26px;
+    font-weight: 800;
+    min-width: 44px;
+    text-align: center;
+    line-height: 1;
+  }
+  .kpi-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.4; }
+
+  .risk-grid { display: flex; flex-direction: column; }
+  .risk-row {
+    display: grid;
+    grid-template-columns: 1.4fr 0.7fr 1.9fr;
+    gap: 8px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 12px;
+    align-items: center;
+  }
+  .risk-row:last-child { border-bottom: none; }
+  .risk-row .r-name { font-weight: 600; color: var(--text); }
+  .risk-row .r-lvl {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .risk-row .r-mit { color: var(--text-secondary); }
+
+  .panel-kpi { border-color: #a7f3d0; background: var(--green-bg); }
+  .panel-kpi h3 { color: var(--green-dark); }
+  .panel-risk { border-color: #fde68a; background: var(--orange-bg); }
+  .panel-risk h3 { color: var(--orange); }
+
+  /* ── Q&A ── */
+  .slide-qa {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background:
+      linear-gradient(135deg, var(--primary-bg) 0%, transparent 50%),
+      linear-gradient(225deg, var(--green-bg) 0%, transparent 50%),
+      var(--surface);
+  }
+  .slide-qa h1 { font-size: 44px; }
+  .slide-qa .divider { width: 48px; height: 3px; background: var(--primary); border-radius: 2px; margin: 16px auto; }
+  .slide-qa .qa-sub { font-size: 20px; color: var(--text-secondary); font-weight: 400; margin-bottom: 8px; }
+
+  .ref-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    max-width: 600px;
+    margin: 24px auto 0;
+    text-align: left;
+  }
+  .ref-grid a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    transition: all 0.2s;
+  }
+  .ref-grid a:hover { border-color: var(--primary-light); }
+  .ref-grid .ref-icon { color: var(--text-muted); font-size: 14px; }
+  .ref-grid .ref-star { color: var(--text-muted); font-size: 11px; }
+
+  /* ── NAVIGATION ── */
+  .navbar {
+    position: absolute;
+    bottom: 16px;
+    left: 32px;
+    right: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .navbar > * { pointer-events: auto; }
+
+  .nav-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 16px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .nav-btn:hover { border-color: var(--primary-light); color: var(--primary); background: var(--primary-bg); }
+
+  .nav-center { display: flex; align-items: center; gap: 8px; }
+  .nav-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.3s;
+  }
+  .nav-dot.active { background: var(--primary); width: 20px; border-radius: 3px; }
+  .nav-counter {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 36px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .nav-right { display: flex; align-items: center; gap: 8px; }
+
+  /* ── KEYBOARD HINT ── */
+  .kb-hint {
+    position: absolute;
+    bottom: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--text-muted);
+    opacity: 0.4;
+    z-index: 5;
+    white-space: nowrap;
+  }
+
+  /* ── RESPONSIVE ── */
+  /* ── CAPABILITY BARS (Slide 8) ── */
+  .cap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; flex: 1; align-content: start; }
+  .cap-col { display: flex; flex-direction: column; gap: 6px; }
+  .cap-item { }
+  .cap-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+  .cap-label { font-size: 12px; font-weight: 600; color: var(--text); }
+  .cap-pct { font-size: 11px; font-weight: 700; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+  .cap-bar { height: 10px; border-radius: 5px; background: var(--border-light); overflow: hidden; }
+  .cap-fill { height: 100%; border-radius: 5px; transition: width 0.6s ease; min-width: 0; }
+
+  /* ── SKILLS CATALOG (Slide 9) ── */
+  .skills-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 16px; flex: 1; align-content: start; }
+  .skill-group { }
+  .skill-group-title { font-size: 11px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; padding: 2px 8px; background: var(--primary-bg); border-radius: 4px; display: inline-block; }
+  .skill-group-items { display: flex; flex-direction: column; gap: 1px; }
+  .skill-chip { font-size: 11px; padding: 2px 6px; color: var(--text-secondary); border-radius: 3px; display: flex; align-items: center; gap: 4px; }
+  .skill-chip .sk-icon { width: 14px; text-align: center; flex-shrink: 0; }
+
+  /* ── WBS PROGRESS TABLE (Slide 10) ── */
+  .wbs-grid { display: flex; flex-direction: column; gap: 3px; flex: 1; align-content: start; }
+  .wbs-row { display: grid; grid-template-columns: 1.3fr 60px 0.8fr 80px; gap: 6px; padding: 5px 8px; border-radius: 6px; align-items: center; font-size: 12px; }
+  .wbs-row:hover { background: var(--border-light); }
+  .wbs-row.wbs-header { font-weight: 700; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 8px; border-bottom: 1px solid var(--border); border-radius: 0; margin-bottom: 2px; }
+  .wbs-row.wbs-header:hover { background: transparent; }
+  .wbs-name { font-weight: 600; color: var(--text); }
+  .wbs-pct { font-family: 'JetBrains Mono', monospace; font-weight: 700; text-align: right; }
+  .wbs-count { font-size: 11px; color: var(--text-secondary); }
+  .wbs-bar-mini { height: 6px; border-radius: 3px; background: var(--border-light); overflow: hidden; }
+  .wbs-bar-mini-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+  .wbs-status-done { color: #059669; }
+  .wbs-status-partial { color: #d97706; }
+  .wbs-status-early { color: #d97706; }
+  .wbs-status-none { color: #dc2626; }
+
+  @media (max-width: 900px) {
+    .slide { padding: 28px 24px; }
+    .slide-cover h1 { font-size: 30px; }
+    h1 { font-size: 28px; }
+    .cols-2, .split, .pillars { grid-template-columns: 1fr; }
+    .cap-grid { grid-template-columns: 1fr; }
+    .skills-grid { grid-template-columns: 1fr 1fr; }
+    .wbs-row { grid-template-columns: 1fr 50px 0.6fr 60px; }
+    .ref-grid { grid-template-columns: 1fr; }
+    .top-bar .tag { display: none; }
+    .tl-row { grid-template-columns: 50px 1fr; }
+    .deck { width: 100vw; border-radius: 0; }
+    .slide-number { right: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="deck" id="deck">
+    <div class="slides-track" id="track">
+
+      <!-- ═══ SLIDE 1: COVER ═══ -->
+      <div class="slide slide-cover" data-i="0">
+        <div class="divider"></div>
+        <h1>MDE1 – CoworkAthon</h1>
+        <p class="subtitle" style="margin-top:8px;font-size:18px">OpenWork Fork + AionUi — Công cụ Cowork cá nhân<br>với File Preview + Skills Research</p>
+        <div class="meta">
+          <span>🏆 Hackathon: AI Cowork / Productivity Tools</span>
+          <span>👤 Nhân</span>
+          <span>📅 11/07/2026</span>
+        </div>
+        <div class="slide-number">01 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 2: BỐI CẢNH ═══ -->
+      <div class="slide" data-i="1">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Bối cảnh</span>
+        </div>
+        <p class="slide-title">Hành trình từ phụ thuộc SaaS đến giải pháp mã nguồn mở tự chủ</p>
+        <p class="slide-desc">Các công cụ cowork hiện tại như Claude Codex, Cursor đều là SaaS — dữ liệu trên cloud, dễ vendor lock-in. Enterprise cần giải pháp self-hosted. Phát hiện OpenCode (engine AI mạnh nhất với 185k★) và AionUi (UX đẹp, 29.9k★) — kết hợp cả hai qua fork là hướng đi tối ưu.</p>
+        <div class="journey">
+          <div class="j-item">
+            <div class="j-num">01</div>
+            <div class="j-card">
+              <div class="j-icon">🔌</div>
+              <h3>Phụ thuộc công cụ bên thứ ba</h3>
+              <p>Các cowork hiện tại (Claude Codex, Cursor, Copilot) đều là SaaS — dữ liệu lưu trên cloud, khả năng tùy chỉnh hạn chế, dễ bị vendor lock-in</p>
+            </div>
+          </div>
+          <div class="j-connector"></div>
+          <div class="j-item">
+            <div class="j-num">02</div>
+            <div class="j-card">
+              <div class="j-icon">🏢</div>
+              <h3>Enterprise cần giải pháp riêng</h3>
+              <p>Doanh nghiệp muốn kiểm soát dữ liệu nội bộ, tự host, không muốn phụ thuộc roadmap của bên thứ ba. Cần một cowork open-source, self-hosted</p>
+            </div>
+          </div>
+          <div class="j-connector"></div>
+          <div class="j-item">
+            <div class="j-num">03</div>
+            <div class="j-card">
+              <div class="j-icon">🔍</div>
+              <h3>Phát hiện OpenCode &amp; OpenWork</h3>
+              <p>OpenCode CLI (Rust, 185k★) — engine AI agent mạnh nhất, MIT, ejectable. OpenWork (16.8k★) — desktop app mã nguồn mở, UI/engine tách biệt qua SDK</p>
+            </div>
+          </div>
+          <div class="j-connector"></div>
+          <div class="j-item">
+            <div class="j-num">04</div>
+            <div class="j-card" style="border-color:#a7f3d0;background:var(--green-bg)">
+              <div class="j-icon">🚀</div>
+              <h3 style="color:var(--green-dark)">Fork + AionUi = giải pháp hoàn chỉnh</h3>
+              <p style="color:var(--green-dark)">Fork OpenWork (giữ engine), port UI từ AionUi (thêm preview + skills) — có engine mạnh + UX đẹp, tự do kiểm soát mã nguồn</p>
+            </div>
+          </div>
+        </div>
+        <div class="slide-number">02 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 3: VẤN ĐỀ & CƠ HỘI ═══ -->
+      <div class="slide" data-i="2">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Vấn đề &amp; Cơ hội</span>
+        </div>
+        <p class="slide-title">Vấn đề: OpenWork thiếu preview · Cơ hội: AionUi có UX đẹp</p>
+        <p class="slide-desc">OpenWork có engine OpenCode mạnh nhưng UI chưa có preview file Office. AionUi có preview + 21 assistants + 30+ LLM nhưng engine yếu hơn. Giải pháp: fork OpenWork, port có chọn lọc từ AionUi — có cả engine mạnh và UX đẹp.</p>
+        <div class="cols-2">
+          <div class="col col-problem">
+            <div class="col-head">❌ Vấn đề</div>
+            <div class="col-body">
+              <div class="col-row"><span class="key">OpenWork</span><span class="val">Engine OpenCode mạnh, nhưng UI thiếu preview file Office</span></div>
+              <div class="col-row"><span class="key">Pain point</span><span class="val">Mỗi file .pptx/.docx/.pdf phải mở app ngoài, mất flow làm việc</span></div>
+              <div class="col-row"><span class="key">Chi phí</span><span class="val">~30 phút/ngày chuyển đổi = 500 giờ/tháng cho 1000 người dùng</span></div>
+            </div>
+          </div>
+          <div class="col col-opportunity">
+            <div class="col-head">✅ Cơ hội</div>
+            <div class="col-body">
+              <div class="col-row"><span class="key">AionUi</span><span class="val">Có preview + 21 assistants + 30+ LLM, nhưng engine yếu</span></div>
+              <div class="col-row"><span class="key">Giải pháp</span><span class="val" style="font-weight:600;color:var(--green-dark)">Fork OpenWork, port tính năng từ AionUi có chọn lọc</span></div>
+              <div class="col-row"><span class="key">Kết quả</span><span class="val" style="font-weight:600;color:var(--primary)">Giữ engine mạnh + thêm UX đẹp = có cả hai</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="slide-number">03 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 4: MỤC TIÊU ═══ -->
+      <div class="slide" data-i="3">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Mục tiêu</span>
+        </div>
+        <p class="subtitle" style="margin-bottom:20px;flex-shrink:0;font-size:15px">
+          OpenWork có đầy đủ tính năng <strong style="color:var(--text)">user-friendly</strong> của AionUi<br>
+          mà vẫn giữ <strong style="color:var(--primary)">engine OpenCode</strong> mạnh mẽ
+        </p>
+        <div class="pillars">
+          <div class="pillar pillar-green">
+            <div class="icon">📄</div>
+            <h3>File Preview</h3>
+            <p>Xem mọi định dạng ngay trong ứng dụng: PPT, Word, PDF, Excel, ảnh, code, MD, diff</p>
+          </div>
+          <div class="pillar pillar-purple">
+            <div class="icon">🧠</div>
+            <h3>Research Workflow</h3>
+            <p>Skill agents cho đọc tài liệu, tóm tắt, tổng hợp kiến thức tự động</p>
+          </div>
+          <div class="pillar pillar-violet">
+            <div class="icon">⚡</div>
+            <h3>Automation</h3>
+            <p>Cron tasks, quản lý file, remote access, nghiên cứu định kỳ</p>
+          </div>
+        </div>
+        <div class="slide-number">04 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 5: KIẾN TRÚC ═══ -->
+      <div class="slide" data-i="4">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Kiến trúc</span>
+        </div>
+        <p class="slide-title">Kiến trúc Fork: Electron + OpenCode engine + UI AionUi</p>
+        <p class="slide-desc">Desktop app (Electron) chạy OpenCode AI engine. UI React kế thừa từ AionUi với các component preview file. Kết nối qua IPC và local server. Kiến trúc module hoá cho phép mở rộng dễ dàng.</p>
+        <div class="diagram-fit">
+          <img src="diagrams/01-architecture.svg" alt="Kiến trúc OpenWork Fork">
+        </div>
+        <div class="slide-number">05 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 6: SO SÁNH ═══ -->
+      <div class="slide" data-i="5">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">So sánh</span>
+        </div>
+        <p class="slide-title">So sánh tính năng OpenWork vs AionUi — kết hợp điểm mạnh cả hai</p>
+        <p class="slide-desc">Đánh giá chi tiết trên 12 tiêu chí: engine AI, file preview, skills, LLM support, scheduling, remote access. OpenWork mạnh về engine và extensibility; AionUi vượt trội về UX và preview. Fork kết hợp ưu điểm của cả hai.</p>
+        <div class="diagram-fit">
+          <img src="diagrams/02-comparison.svg" alt="So sánh OpenWork vs AionUi">
+        </div>
+        <div class="slide-number">06 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 7: QUYẾT ĐỊNH FORK ═══ -->
+      <div class="slide" data-i="6">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Quyết định Fork</span>
+        </div>
+        <p class="slide-title">Cây quyết định: Fork OpenWork + Port UI từ AionUi</p>
+        <p class="slide-desc">Phân tích 3 phương án: (1) OpenWork thuần — engine mạnh, UX cơ bản; (2) AionUi — UX đẹp, engine yếu; (3) Fork OpenWork + port UI từ AionUi — giữ engine mạnh, thêm UX đẹp, tự do kiểm soát mã nguồn.</p>
+        <div class="diagram-fit">
+          <img src="diagrams/03-fork-decision.svg" alt="Cây quyết định Fork">
+        </div>
+        <div class="slide-number">07 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 8: HACKATHON 48H ═══ -->
+      <div class="slide" data-i="7">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Hackathon 48h</span>
+        </div>
+        <p class="slide-title">Kế hoạch 48 giờ: từ setup đến MVP và submit</p>
+        <p class="slide-desc">Lịch trình chi tiết 6 mốc: thiết lập môi trường (H0–H4), MVP file preview (H4–H12), polish (H12–H24), skills research (H24–H36), bug fix + slide (H36–H44), rehearsal + submit (H44–H48). Mục tiêu: app Electron chạy được + 2 preview + 1 skill research.</p>
+        <div class="tl">
+          <div class="tl-row">
+            <div class="tl-time">H0 – H4</div>
+            <div class="tl-bar"><strong>🔧 Thiết lập môi trường</strong><p>Fork repo · Đọc code 2 ứng dụng · Cài dependencies · Cấu hình Electron</p></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">H4 – H12</div>
+            <div class="tl-bar highlight"><strong>🎯 Phase 1 MVP — QUAN TRỌNG</strong><p>SlidesPreview (PPTX→HTML) · DocumentPreview (DOCX→HTML) · IPC handler · File classification</p></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">H12 – H24</div>
+            <div class="tl-bar"><strong>✨ Phase 1 Polish</strong><p>Multi-tab preview · Syntax highlight (Shiki) · File icon mapping · Theme UI</p></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">H24 – H36</div>
+            <div class="tl-bar"><strong>🧠 Skills Research</strong><p>Viết skill research-assistant · Test thật với PDF · Tích hợp MarkItDown</p></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">H36 – H44</div>
+            <div class="tl-bar"><strong>🐛 Bug fixes + UI polish</strong><p>Sửa lỗi · Làm slide trình bày · Chụp screenshots cho demo</p></div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-time">H44 – H48</div>
+            <div class="tl-bar" style="border-left-color:#d97706"><strong>🚀 Rehearsal + Submit</strong><p>Tập trình bày 5 phút · Chuẩn bị demo thật · Submit project</p></div>
+          </div>
+        </div>
+        <div class="deliverables">
+          <span class="badge badge-green">App chạy được (Electron + OpenCode)</span>
+          <span class="badge">2 file preview (PPTX, DOCX)</span>
+          <span class="badge badge-green">1 skill research-assistant</span>
+          <span class="badge">GitHub public + Slide 5 phút</span>
+        </div>
+        <div class="slide-number">08 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 9: TIẾN ĐỘ ═══ -->
+      <div class="slide" data-i="8">
+        <div class="top-bar">
+          <div class="logo-mark">M</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">Năng lực Cowork</span>
+        </div>
+        <p class="subtitle" style="margin-bottom:6px;flex-shrink:0;font-size:13px">
+          ✦ 12 hạng mục · 613h effort · 66/99 task hoàn thành ✦
+        </p>
+
+        <!-- Radar chart (SVG) — 8 axes: Preview, Skills, FileTree, MCP, Sessions, ImageGen, Remote, Version -->
+        <!-- Updated: Skills=85%, Version=100%, Sessions=40%, ImageGen=25%, Remote=15% -->
+        <svg viewBox="0 0 480 480" style="width:195px;height:195px;flex-shrink:0;float:right;margin:-4px 0 0 12px;">
+          <defs>
+            <radialGradient id="rg" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#4f46e5" stop-opacity="0.25"/><stop offset="100%" stop-color="#4f46e5" stop-opacity="0.04"/></radialGradient>
+          </defs>
+          <circle cx="240" cy="240" r="20" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+          <circle cx="240" cy="240" r="60" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+          <circle cx="240" cy="240" r="100" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+          <circle cx="240" cy="240" r="140" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+          <circle cx="240" cy="240" r="180" fill="none" stroke="#e2e8f0" stroke-width="0.5"/>
+          <!-- Axes: 0=90°, 1=45°, 2=0°, 3=-45°, 4=-90°, 5=-135°, 6=180°, 7=135° (from top) -->
+          <line x1="240" y1="240" x2="240" y2="60" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="367" y2="113" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="420" y2="240" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="367" y2="367" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="240" y2="420" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="113" y2="367" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="60" y2="240" stroke="#cbd5e1" stroke-width="0.8"/>
+          <line x1="240" y1="240" x2="113" y2="113" stroke="#cbd5e1" stroke-width="0.8"/>
+          <!-- Polygon: radii = pct*1.8+20: 90%=182, 85%=173, 85%=173, 90%=182, 40%=92, 25%=65, 15%=47, 100%=180 -->
+          <polygon points="240,58 407,129 419,359 240,422 137,359 105,289 60,240 105,121"
+                    fill="url(#rg)" stroke="#4f46e5" stroke-width="2.5" stroke-linejoin="round"/>
+          <circle cx="240" cy="58" r="4" fill="#4f46e5"/>
+          <circle cx="407" cy="129" r="4" fill="#4f46e5"/>
+          <circle cx="419" cy="359" r="4" fill="#4f46e5"/>
+          <circle cx="240" cy="422" r="4" fill="#4f46e5"/>
+          <circle cx="137" cy="359" r="4" fill="#4f46e5"/>
+          <circle cx="105" cy="289" r="4" fill="#4f46e5"/>
+          <circle cx="60" cy="240" r="4" fill="#4f46e5"/>
+          <circle cx="105" cy="121" r="4" fill="#4f46e5"/>
+          <!-- Labels -->
+          <text x="240" y="48" text-anchor="middle" font-size="9" font-weight="600" fill="#4f46e5">Preview</text>
+          <text x="418" y="126" font-size="9" font-weight="600" fill="#4f46e5">Skills</text>
+          <text x="430" y="368" font-size="9" font-weight="600" fill="#4f46e5">FileTree</text>
+          <text x="240" y="438" text-anchor="middle" font-size="9" font-weight="600" fill="#4f46e5">Sess.</text>
+          <text x="54" y="246" text-anchor="end" font-size="9" font-weight="600" fill="#4f46e5">Ver.</text>
+        </svg>
+
+        <!-- Capability bars (updated: Skills 92%, Cron → "▶️ Ưu tiên") -->
+        <div class="cap-grid">
+          <div class="cap-col">
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">📄 File Preview</span><span class="cap-pct">90%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:90%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🧠 Skills &amp; Assistants</span><span class="cap-pct">85%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:85%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+              <div style="font-size:10px;color:var(--text-secondary);margin-top:1px;">48 skills · framework 5/9 tasks</div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">📁 File Tree</span><span class="cap-pct">85%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:85%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🔌 MCP Management</span><span class="cap-pct">90%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:90%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">📑 Multi-tab Sessions</span><span class="cap-pct">40%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:40%;background:linear-gradient(90deg,#d97706,#f59e0b)"></div></div>
+            </div>
+          </div>
+          <div class="cap-col">
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🖼️ Image Generation</span><span class="cap-pct">25%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:25%;background:linear-gradient(90deg,#d97706,#f59e0b)"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🌐 Remote Access</span><span class="cap-pct">15%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:15%;background:linear-gradient(90deg,#d97706,#f59e0b)"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">📋 Version History</span><span class="cap-pct">100%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:100%;background:linear-gradient(90deg,#059669,#10b981)"></div></div>
+              <div style="font-size:10px;color:var(--text-secondary);margin-top:1px;">8/8 tasks — snapshot + API + UI + diff</div>
+            </div>
+            <div class="cap-item" style="border:1px dashed #f59e0b;border-radius:6px;padding:4px 6px;background:#fffbeb;">
+              <div class="cap-top"><span class="cap-label">▶️ ⏰ Scheduled Tasks</span><span class="cap-pct" style="color:#d97706">83%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:83%;background:linear-gradient(90deg,#d97706,#10b981)"></div></div>
+              <div style="font-size:10px;color:#d97706;margin-top:1px;">5/6 tasks — S1→S5 done, còn E2E test</div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">👥 Multi-Agent Team</span><span class="cap-pct">0%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:0%"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🎨 Custom CSS</span><span class="cap-pct">0%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:0%"></div></div>
+            </div>
+            <div class="cap-item">
+              <div class="cap-top"><span class="cap-label">🖥️ Right Panel UX</span><span class="cap-pct">60%</span></div>
+              <div class="cap-bar"><div class="cap-fill" style="width:60%;background:linear-gradient(90deg,#d97706,#f59e0b)"></div></div>
+              <div style="font-size:10px;color:var(--text-secondary);margin-top:1px;">MiniMax-style · 14/18 tasks</div>
+            </div>
+          </div>
+        </div>
+        <div class="slide-number">09 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 9: SKILLS & AGENTS ═══ -->
+      <div class="slide" data-i="9">
+        <div class="top-bar">
+          <div class="logo-mark">M</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">45 Skills &amp; Agents</span>
+        </div>
+        <p class="subtitle" style="margin-bottom:12px;flex-shrink:0;font-size:13px">
+          ✦ Mỗi skill là 1 agent chuyên biệt · <code style="background:var(--border-light);padding:1px 4px;border-radius:3px;">.opencode/skills/</code> ✦
+        </p>
+
+        <div class="skills-grid">
+          <!-- Column 1 -->
+          <div class="skill-group">
+            <div class="skill-group-title">📊 Office &amp; Documents</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">📄</span>PPT Creator</span>
+              <span class="skill-chip"><span class="sk-icon">📝</span>Word Creator</span>
+              <span class="skill-chip"><span class="sk-icon">📊</span>Excel Creator</span>
+              <span class="skill-chip"><span class="sk-icon">📽️</span>Morph PPT</span>
+              <span class="skill-chip"><span class="sk-icon">🎬</span>Morph PPT 3D</span>
+              <span class="skill-chip"><span class="sk-icon">📑</span>Pitch Deck Creator</span>
+              <span class="skill-chip"><span class="sk-icon">📋</span>Word Form Creator</span>
+              <span class="skill-chip"><span class="sk-icon">🤝</span>Star Office Helper</span>
+            </div>
+          </div>
+          <div class="skill-group">
+            <div class="skill-group-title">🎨 Design &amp; Creative</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">📈</span>Dashboard Creator</span>
+              <span class="skill-chip"><span class="sk-icon">🧭</span>Beautiful Mermaid</span>
+              <span class="skill-chip"><span class="sk-icon">🎮</span>3D Game</span>
+              <span class="skill-chip"><span class="sk-icon">🎨</span>UI/UX Pro Max</span>
+              <span class="skill-chip"><span class="sk-icon">🖼️</span>Drawio: AWS</span>
+              <span class="skill-chip"><span class="sk-icon">🖼️</span>Drawio: Azure</span>
+              <span class="skill-chip"><span class="sk-icon">🖼️</span>Drawio: GCP</span>
+              <span class="skill-chip"><span class="sk-icon">🖼️</span>Drawio: BPMN</span>
+              <span class="skill-chip"><span class="sk-icon">🖼️</span>Drawio: Databricks</span>
+            </div>
+          </div>
+          <div class="skill-group">
+            <div class="skill-group-title">📚 Research &amp; Writing</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">🎓</span>Academic Paper Writer</span>
+              <span class="skill-chip"><span class="sk-icon">💰</span>Financial Model Creator</span>
+              <span class="skill-chip"><span class="sk-icon">📋</span>Planning with Files</span>
+              <span class="skill-chip"><span class="sk-icon">🏋️</span>Human 3.0 Coach</span>
+              <span class="skill-chip"><span class="sk-icon">📱</span>Social Job Publisher</span>
+              <span class="skill-chip"><span class="sk-icon">📚</span>File Organizer</span>
+              <span class="skill-chip"><span class="sk-icon">📝</span>Story Roleplay</span>
+            </div>
+          </div>
+          <!-- Column 2 -->
+          <div class="skill-group">
+            <div class="skill-group-title">🤖 Automation &amp; Test</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">🤖</span>Cowork</span>
+              <span class="skill-chip"><span class="sk-icon">🖥️</span>Browser Automation</span>
+              <span class="skill-chip"><span class="sk-icon">📸</span>Agent-first Screenshots</span>
+              <span class="skill-chip"><span class="sk-icon">📋</span>Fraimz (E2E Proof)</span>
+              <span class="skill-chip"><span class="sk-icon">🧪</span>Run Evals</span>
+              <span class="skill-chip"><span class="sk-icon">🚀</span>Release</span>
+              <span class="skill-chip"><span class="sk-icon">🖥️</span>Create Plugin</span>
+              <span class="skill-chip"><span class="sk-icon">📦</span>Shadcn</span>
+            </div>
+          </div>
+          <div class="skill-group">
+            <div class="skill-group-title">☁️ Daytona Cloud</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">☁️</span>Daytona Cloud Instance</span>
+              <span class="skill-chip"><span class="sk-icon">☁️</span>Daytona Cloud Server</span>
+              <span class="skill-chip"><span class="sk-icon">🖥️</span>Daytona Dev</span>
+              <span class="skill-chip"><span class="sk-icon">📱</span>Daytona Electron Test</span>
+              <span class="skill-chip"><span class="sk-icon">🔄</span>Daytona Electron+Den</span>
+              <span class="skill-chip"><span class="sk-icon">🧪</span>Daytona Flow Validator</span>
+              <span class="skill-chip"><span class="sk-icon">🎬</span>Daytona Recording Atf.</span>
+              <span class="skill-chip"><span class="sk-icon">🔑</span>Daytona Secrets Vol.</span>
+              <span class="skill-chip"><span class="sk-icon">🌱</span>Daytona Seeded Demo</span>
+              <span class="skill-chip"><span class="sk-icon">🌐</span>Daytona Chrome CDP</span>
+            </div>
+          </div>
+          <div class="skill-group">
+            <div class="skill-group-title">🔧 Utility &amp; Extras</div>
+            <div class="skill-group-items">
+              <span class="skill-chip"><span class="sk-icon">🧠</span>OpenWork Models</span>
+              <span class="skill-chip"><span class="sk-icon">🔌</span>OpenClaw Setup</span>
+              <span class="skill-chip"><span class="sk-icon">🌐</span>Moltbook</span>
+              <span class="skill-chip"><span class="sk-icon">📝</span>Customize OpenCode</span>
+            </div>
+          </div>
+        </div>
+        <div class="slide-number">10 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 10: TIẾN ĐỘ THỰC TẾ (WBS) ═══ -->
+      <div class="slide" data-i="10">
+        <div class="top-bar">
+          <div class="logo-mark">M</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">WBS Progress</span>
+        </div>
+        <p class="subtitle" style="margin-bottom:10px;flex-shrink:0;font-size:13px">
+          ✦ Dữ liệu từ <code style="background:var(--border-light);padding:1px 4px;border-radius:3px;">wbs-tasks-vi.xlsx</code> · Tổng 613h · 66/99 task ✦
+        </p>
+
+        <div class="wbs-grid">
+          <div class="wbs-row wbs-header">
+            <span>Phase / Module</span>
+            <span style="text-align:right">%</span>
+            <span>Task</span>
+            <span style="text-align:right">Effort</span>
+          </div>
+
+          <!-- Phase 1: File Preview ✅ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">📄 File Preview</span>
+            <span class="wbs-pct wbs-status-done">90%</span>
+            <span class="wbs-count">12/13 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:90%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 2: Skills ✅ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">🧠 Skills &amp; Assistants</span>
+            <span class="wbs-pct wbs-status-done">85%</span>
+            <span class="wbs-count">5/9 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:85%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 3: Scheduled Tasks ✅ IN PROGRESS -->
+          <div class="wbs-row" style="border:1px solid #a7f3d0;border-radius:6px;background:#f0fdf4;">
+            <span class="wbs-name" style="color:#065f46;font-weight:700;">▶️ ⏰ Scheduled Tasks</span>
+            <span class="wbs-pct wbs-status-done">83%</span>
+            <span class="wbs-count">5/6 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:83%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 4: Remote ⚠️ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-early">🌐 Remote Access</span>
+            <span class="wbs-pct wbs-status-early">15%</span>
+            <span class="wbs-count">1/3 <span style="color:var(--orange);font-size:10px;">⚠️</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:15%;background:#d97706"></div></div></span>
+          </div>
+
+          <!-- Phase 5: File Tree ✅ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">📁 File Tree</span>
+            <span class="wbs-pct wbs-status-done">85%</span>
+            <span class="wbs-count">6/8 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:85%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 6: Version History ✅ DONE -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">📋 Version History</span>
+            <span class="wbs-pct wbs-status-done">100%</span>
+            <span class="wbs-count">8/8 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:100%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 7: Sessions 🔶 -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-partial">📑 Multi-tab Sessions</span>
+            <span class="wbs-pct wbs-status-partial">40%</span>
+            <span class="wbs-count">3/5 <span style="color:var(--orange);font-size:10px;">🔶</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:40%;background:#d97706"></div></div></span>
+          </div>
+
+          <!-- Phase 8: Multi-Agent ❌ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-none">👥 Multi-Agent Team</span>
+            <span class="wbs-pct wbs-status-none">0%</span>
+            <span class="wbs-count">0/5 <span style="color:#dc2626;font-size:10px;">❌</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:0%"></div></div></span>
+          </div>
+
+          <!-- Phase 9: MCP ✅ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">🔌 MCP Management</span>
+            <span class="wbs-pct wbs-status-done">90%</span>
+            <span class="wbs-count">4/4 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:90%;background:#059669"></div></div></span>
+          </div>
+
+          <!-- Phase 10: Custom CSS ❌ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-none">🎨 Custom CSS</span>
+            <span class="wbs-pct wbs-status-none">0%</span>
+            <span class="wbs-count">0/4 <span style="color:#dc2626;font-size:10px;">❌</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:0%"></div></div></span>
+          </div>
+
+          <!-- Phase 11: Image Gen ⚠️ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-early">🖼️ Image Generation</span>
+            <span class="wbs-pct wbs-status-early">25%</span>
+            <span class="wbs-count">2/5 <span style="color:var(--orange);font-size:10px;">⚠️</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:25%;background:#d97706"></div></div></span>
+          </div>
+
+          <!-- Phase 12: Right Panel UX ✅ -->
+          <div class="wbs-row">
+            <span class="wbs-name wbs-status-done">🖥️ Right Panel UX</span>
+            <span class="wbs-pct wbs-status-done">60%</span>
+            <span class="wbs-count">14/18 <span style="color:var(--green);font-size:10px;">✅</span></span>
+            <span><div class="wbs-bar-mini"><div class="wbs-bar-mini-fill" style="width:60%;background:#059669"></div></div></span>
+          </div>
+        </div>
+
+        <!-- Legend & next step -->
+        <div style="display:flex;gap:16px;margin-top:6px;flex-shrink:0;font-size:10px;color:var(--text-secondary);border-top:1px solid var(--border);padding-top:6px;">
+          <span><span style="color:#059669;font-weight:700;">✅</span> Hoàn thành (≥85%)</span>
+          <span><span style="color:#d97706;font-weight:700;">🔶</span> Đang phát triển</span>
+          <span><span style="color:#dc2626;font-weight:700;">❌</span> Chưa bắt đầu</span>
+        </div>
+
+        <div class="slide-number">11 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 12: CAPABILITIES ═══ -->
+      <div class="slide" data-i="11" style="justify-content:center;">
+        <div class="top-bar">
+          <div class="logo-mark">O</div>
+          <span class="logo-text">MDE1 – CoworkAthon</span>
+          <span class="spacer"></span>
+          <span class="tag">OpenWork có thể làm gì?</span>
+        </div>
+        <p class="slide-title">12 khả năng chính của OpenWork sau Fork</p>
+        <p class="slide-desc">Từ đọc tài liệu, research, tạo file Office, coding, preview 80+ định dạng, scheduled tasks, MCP extension, remote Telegram, đến tích hợp đa LLM — OpenWork sau fork có hệ sinh thái đầy đủ cho cả cá nhân và doanh nghiệp.</p>
+        <style>
+          .cap-grid-12 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            flex: 1;
+            align-content: center;
+            max-width: 100%;
+            margin: 0 auto;
+          }
+          .cap-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--surface);
+            transition: all 0.2s;
+          }
+          .cap-card:hover {
+            border-color: var(--primary-light);
+            box-shadow: 0 2px 8px rgba(79,70,229,0.08);
+          }
+          .cap-card-icon {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+          }
+          .cap-card-body { flex: 1; }
+          .cap-card-body h4 {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 2px;
+            color: var(--text);
+          }
+          .cap-card-body p {
+            font-size: 11.5px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+          }
+          .cap-tag {
+            display: inline-block;
+            font-size: 9px;
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-top: 3px;
+          }
+          .cap-tag-green { background: var(--green-bg); color: var(--green-dark); }
+          .cap-tag-purple { background: var(--primary-bg); color: var(--primary); }
+          .cap-tag-orange { background: var(--orange-bg); color: var(--orange); }
+
+          @media (max-width: 900px) {
+            .cap-grid-12 { grid-template-columns: 1fr 1fr; }
+          }
+          @media (max-width: 600px) {
+            .cap-grid-12 { grid-template-columns: 1fr; }
+          }
+        </style>
+
+        <div class="cap-grid-12">
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#eef2ff;color:#4f46e5;">📚</div>
+            <div class="cap-card-body">
+              <h4>Đọc tài liệu &amp; trả lời câu hỏi</h4>
+              <p>Agent đọc toàn bộ workspace, trích xuất thông tin, trả lời dựa trên ngữ cảnh dự án</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#f0fdf4;color:#059669;">🔑</div>
+            <div class="cap-card-body">
+              <h4>Dùng OpenWork Cloud / FCI</h4>
+              <p>Không cần API key riêng — dùng FCI (Key AI của FPT)</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#f5f3ff;color:#6d28d9;">🔍</div>
+            <div class="cap-card-body">
+              <h4>Research &amp; tổng hợp kết quả</h4>
+              <p>Web search, đọc nhiều nguồn, tổng hợp thành báo cáo — tự động hoá research workflow</p>
+              <span class="cap-tag cap-tag-purple">🔧 Skills</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#fef2f2;color:#dc2626;">📄</div>
+            <div class="cap-card-body">
+              <h4>Tạo file đa dạng</h4>
+              <p>PPTX, DOCX, XLSX, HTML, Markdown, PDF — agent tạo và chỉnh sửa trực tiếp</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#fffbeb;color:#d97706;">⏰</div>
+            <div class="cap-card-body">
+              <h4>Scheduled Task hằng ngày</h4>
+              <p>Cron job trong app — agent chạy tự động theo lịch, báo cáo định kỳ (đang phát triển)</p>
+              <span class="cap-tag cap-tag-orange">🔄 83%</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#eef2ff;color:#4f46e5;">🧩</div>
+            <div class="cap-card-body">
+              <h4>Thêm Agent Skill mới</h4>
+              <p>Hệ thống skills mở — tự định nghĩa skill, plugin, MCP server, share qua Cloud</p>
+              <span class="cap-tag cap-tag-purple">48 Skills</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#ecfdf5;color:#065f46;">💻</div>
+            <div class="cap-card-body">
+              <h4>Coding &amp; review code</h4>
+              <p>Soạn thảo, chạy thử, review code ngay trong app — highlight syntax 80+ ngôn ngữ</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#f5f3ff;color:#6d28d9;">👁️</div>
+            <div class="cap-card-body">
+              <h4>Preview file trong app</h4>
+              <p>Xem PPT, Word, Excel, PDF, code, ảnh, video — 80+ định dạng, không cần app ngoài</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#fffbeb;color:#d97706;">🔌</div>
+            <div class="cap-card-body">
+              <h4>Kết nối MCP Server / Extension</h4>
+              <p>Thêm hàng trăm MCP server từ marketplace, tự config hoặc import từ Claude Plugin</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#f0fdf4;color:#059669;">🌐</div>
+            <div class="cap-card-body">
+              <h4>Remote access qua Telegram</h4>
+              <p>Điều khiển agent từ xa qua Telegram bot — nhận báo cáo, gửi lệnh bất kỳ đâu</p>
+              <span class="cap-tag cap-tag-orange">🔶 15%</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#eef2ff;color:#4f46e5;">🔄</div>
+            <div class="cap-card-body">
+              <h4>Tích hợp đa dạng LLM</h4>
+              <p>Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter — dùng 30+ nền tảng cùng lúc</p>
+              <span class="cap-tag cap-tag-green">✅ Có sẵn</span>
+            </div>
+          </div>
+
+          <div class="cap-card">
+            <div class="cap-card-icon" style="background:#f5f3ff;color:#6d28d9;">📋</div>
+            <div class="cap-card-body">
+              <h4>Version History</h4>
+              <p>Lịch sử phiên bản file — snapshot tự động, so sánh diff, khôi phục bất kỳ lúc nào</p>
+              <span class="cap-tag cap-tag-green">✅ 100%</span>
+            </div>
+          </div>
+
+        </div>
+        <div class="slide-number">12 / 13</div>
+      </div>
+
+      <!-- ═══ SLIDE 13: Q&A + TỔNG KẾT ═══ -->
+      <div class="slide slide-qa" data-i="12">
+        <h1>Cảm ơn!</h1>
+        <div class="divider"></div>
+        <p class="qa-sub">Q &amp; A</p>
+
+        <!-- Key achievements recap -->
+        <div style="display:flex;gap:12px;justify-content:center;margin:12px auto 0;flex-wrap:wrap;max-width:600px;">
+          <div style="border:1px solid var(--border);border-radius:10px;padding:8px 14px;text-align:center;background:var(--surface);min-width:90px;">
+            <div style="font-size:24px;font-weight:800;color:var(--primary);">66</div>
+            <div style="font-size:10px;color:var(--text-secondary);">Task hoàn thành</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:8px 14px;text-align:center;background:var(--surface);min-width:90px;">
+            <div style="font-size:24px;font-weight:800;color:var(--green);">48</div>
+            <div style="font-size:10px;color:var(--text-secondary);">Skills &amp; Agents</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:8px 14px;text-align:center;background:var(--surface);min-width:90px;">
+            <div style="font-size:24px;font-weight:800;color:var(--primary);">80+</div>
+            <div style="font-size:10px;color:var(--text-secondary);">File extensions</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:10px;padding:8px 14px;text-align:center;background:var(--surface);min-width:90px;">
+            <div style="font-size:24px;font-weight:800;color:#6d28d9;">12</div>
+            <div style="font-size:10px;color:var(--text-secondary);">Phase dự án</div>
+          </div>
+        </div>
+
+        <div class="ref-grid">
+          <a href="https://github.com/different-ai/openwork" target="_blank">
+            <span class="ref-icon">🔗</span> OpenWork — github.com/different-ai/openwork
+            <span class="ref-star">(16.8k★)</span>
+          </a>
+          <a href="https://github.com/anomalyco/opencode" target="_blank">
+            <span class="ref-icon">🔗</span> OpenCode — github.com/anomalyco/opencode
+            <span class="ref-star">(185k★)</span>
+          </a>
+          <a href="https://github.com/iOfficeAI/AionUi" target="_blank">
+            <span class="ref-icon">🔗</span> AionUi — github.com/iOfficeAI/AionUi
+            <span class="ref-star">(29.9k★)</span>
+          </a>
+          <a href="https://github.com/iOfficeAI/OfficeCLI" target="_blank">
+            <span class="ref-icon">🔗</span> OfficeCLI — github.com/iOfficeAI/OfficeCLI
+            <span class="ref-star">(15.1k★)</span>
+          </a>
+        </div>
+        <div class="slide-number">13 / 13</div>
+      </div>
+
+    </div><!-- /track -->
+
+    <!-- ─── NAVBAR ─── -->
+    <div class="navbar">
+      <button class="nav-btn" id="prevBtn">‹ Trước</button>
+      <div class="nav-center">
+        <div class="nav-dots" id="dots"></div>
+        <span class="nav-counter" id="counter">01/11</span>
+      </div>
+      <div class="nav-right">
+        <button class="nav-btn" id="nextBtn">Sau ›</button>
+      </div>
+    </div>
+
+    <div class="kb-hint">← → hoặc Space để chuyển slide</div>
+  </div><!-- /deck -->
+</div><!-- /stage -->
+
+<script>
+(function() {
+  const total = 13;
+  let cur = 0;
+  const track = document.getElementById('track');
+  const dotsEl = document.getElementById('dots');
+  const counterEl = document.getElementById('counter');
+
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement('button');
+    d.className = 'nav-dot' + (i === 0 ? ' active' : '');
+    d.dataset.i = i;
+    d.addEventListener('click', () => go(i));
+    dotsEl.appendChild(d);
+  }
+
+  function go(i) {
+    if (i < 0 || i >= total) return;
+    cur = i;
+    track.style.transform = `translateX(-${cur * 100}%)`;
+    document.querySelectorAll('.nav-dot').forEach((d, idx) => d.classList.toggle('active', idx === cur));
+    counterEl.textContent = String(cur + 1).padStart(2, '0') + '/' + String(total).padStart(2, '0');
+  }
+
+  document.getElementById('prevBtn').addEventListener('click', () => go(cur - 1));
+  document.getElementById('nextBtn').addEventListener('click', () => go(cur + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); go(cur + 1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')    { e.preventDefault(); go(cur - 1); }
+  });
+
+  let tx = 0;
+  document.addEventListener('touchstart', e => tx = e.touches[0].clientX, {passive:true});
+  document.addEventListener('touchend', e => {
+    const d = tx - e.changedTouches[0].clientX;
+    if (Math.abs(d) > 50) go(cur + (d > 0 ? 1 : -1));
+  }, {passive:true});
+})();
+</script>
+</body>
+</html>

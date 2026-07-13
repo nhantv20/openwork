@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { eq, and, desc, lt, sql } from "drizzle-orm";
 import { integer, sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
-import type { FileSnapshot, FileSnapshotTrigger, ServerConfig } from "./types.js";
+import type { FileSnapshot, FileSnapshotStatus, FileSnapshotTrigger, ServerConfig } from "./types.js";
 import { ensureDir, shortId } from "./utils.js";
 
 /** Cap on a single snapshot's content. Larger files must be refused by the caller. */
@@ -46,6 +46,11 @@ const fileSnapshots = sqliteTable(
     createdAt: integer("created_at").notNull(),
     trigger: text("trigger").notNull(),
     revision: text("revision"),
+    // Phase 6.9 (Review Tab): approval workflow columns. Both nullable so
+    // legacy rows (pre-Phase 6.9) and non-agent triggers (auto, manual)
+    // simply read back as null.
+    status: text("status"),
+    parentSnapshotId: text("parent_snapshot_id"),
   },
   (table) => ({
     /** Used by `list(workspaceId, filePath, {before})` and `findLatest`. */
@@ -60,6 +65,12 @@ const fileSnapshots = sqliteTable(
       table.filePath,
       table.contentHash,
     ),
+    /** Phase 6.9: filter agent-triggered snapshots by approval status. */
+    statusIdx: index("idx_snapshots_status").on(
+      table.workspaceId,
+      table.status,
+      table.createdAt,
+    ),
   }),
 );
 
@@ -73,6 +84,8 @@ type SnapshotRow = {
   createdAt: number;
   trigger: string;
   revision: string | null;
+  status: string | null;
+  parentSnapshotId: string | null;
 };
 
 type SnapshotDb = {
@@ -82,11 +95,36 @@ type SnapshotDb = {
     filePath: string,
     opts: { limit: number; before?: number },
   ) => SnapshotRow[];
-  findLatest: (workspaceId: string, filePath: string) => SnapshotRow | null;
+  findLatest: (workspaceId: string, filePath: string, trigger?: string) => SnapshotRow | null;
   getById: (workspaceId: string, snapshotId: string) => SnapshotRow | null;
   delete: (workspaceId: string, snapshotId: string) => boolean;
   count: (workspaceId: string, filePath?: string) => number;
   trim: (workspaceId: string, filePath: string, keepLast: number) => number;
+  /** Phase 6.9: list every snapshot in a workspace matching a trigger + status filter. */
+  listByStatus: (
+    workspaceId: string,
+    opts: { trigger: FileSnapshotTrigger; status: FileSnapshotStatus; limit: number; before?: number },
+  ) => SnapshotRow[];
+  /** L3 fix: list every agent-triggered snapshot (any status, including legacy NULL). */
+  listAllAgent: (
+    workspaceId: string,
+    opts: { limit: number; before?: number },
+  ) => SnapshotRow[];
+  /**
+   * Phase 6.9 hotfix: latest non-agent snapshot for a file. Used to
+   * backfill `parentSnapshotId` on legacy agent rows and on the
+   * response shape of the pending-approvals route. Triggers
+   * considered: `auto`, `manual`.
+   */
+  findLatestNonAgent: (workspaceId: string, filePath: string) => SnapshotRow | null;
+  /** Phase 6.9: mark a snapshot approved/pending/rejected. */
+  setStatus: (
+    workspaceId: string,
+    snapshotId: string,
+    status: FileSnapshotStatus,
+  ) => SnapshotRow | null;
+  /** Phase 6.9: stamp the pre-AI snapshot id onto a row (e.g. when an agent edit lands). */
+  setParent: (workspaceId: string, snapshotId: string, parentSnapshotId: string | null) => void;
 };
 
 function rowToSnapshot(row: SnapshotRow): FileSnapshot {
@@ -102,11 +140,24 @@ function rowToSnapshot(row: SnapshotRow): FileSnapshot {
     // shape (anything outside the whitelist) is normalised to "auto".
     trigger: isValidTrigger(row.trigger) ? row.trigger : "auto",
     revision: row.revision,
+    // Phase 6.9: approval status. Maps null → undefined so legacy
+    // rows and non-agent triggers don't carry a meaningless "pending"
+    // marker into the wire payload.
+    status: isValidStatus(row.status) ? row.status : undefined,
+    // null parent = no pre-AI snapshot (first snapshot in a file, or
+    // legacy row). Distinguishing null from missing keeps reject
+    // logic safe: a missing parent row would otherwise be treated
+    // identically and fail with a confusing "not found" error.
+    parentSnapshotId: row.parentSnapshotId,
   };
 }
 
 function isValidTrigger(value: string): value is FileSnapshotTrigger {
   return value === "auto" || value === "manual" || value === "agent";
+}
+
+function isValidStatus(value: string | null): value is FileSnapshotStatus {
+  return value === "pending" || value === "approved" || value === "rejected";
 }
 
 function normalizeContentHash(content: string): string {
@@ -141,6 +192,23 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
         revision TEXT
       )
     `);
+    // Phase 6.9: approval workflow columns. Added via ALTER TABLE so
+    // legacy databases created before the migration still upgrade
+    // cleanly. Both columns are nullable: legacy rows stay status=null
+    // / parent_snapshot_id=null, and the SELECT shape below already
+    // uses coalesce-friendly accessors.
+    const columnCheck = sqlite
+      .query<{ name: string }, []>(
+        "SELECT name FROM pragma_table_info('file_snapshots')",
+      )
+      .all();
+    const columnNames = new Set(columnCheck.map((row) => row.name));
+    if (!columnNames.has("status")) {
+      sqlite.run("ALTER TABLE file_snapshots ADD COLUMN status TEXT");
+    }
+    if (!columnNames.has("parent_snapshot_id")) {
+      sqlite.run("ALTER TABLE file_snapshots ADD COLUMN parent_snapshot_id TEXT");
+    }
     sqlite.run(`
       CREATE INDEX IF NOT EXISTS idx_snapshots_workspace_file
         ON file_snapshots(workspace_id, file_path, created_at)
@@ -149,6 +217,17 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_dedup
         ON file_snapshots(workspace_id, file_path, content_hash)
     `);
+    sqlite.run(`
+      CREATE INDEX IF NOT EXISTS idx_snapshots_status
+        ON file_snapshots(workspace_id, status, created_at)
+    `);
+    // L3 fix: enable WAL journal mode so concurrent readers (e.g.
+    // `listAgentSnapshots`) do not block on a writer holding the
+    // `delete` journal lock. Without this, the read-only connection
+    // we used to spin up per call would either busy-loop or error
+    // out under load. WAL also gives us crash safety for free.
+    sqlite.run("PRAGMA journal_mode = WAL");
+    sqlite.run("PRAGMA synchronous = NORMAL");
     const db = drizzle(sqlite);
     return {
       save: (input) => {
@@ -191,16 +270,16 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
           .limit(opts.limit)
           .all();
       },
-      findLatest: (workspaceId, filePath) => {
+      findLatest: (workspaceId, filePath, trigger) => {
+        const where = [
+          eq(fileSnapshots.workspaceId, workspaceId),
+          eq(fileSnapshots.filePath, filePath),
+        ];
+        if (trigger) where.push(eq(fileSnapshots.trigger, trigger));
         const row = db
           .select()
           .from(fileSnapshots)
-          .where(
-            and(
-              eq(fileSnapshots.workspaceId, workspaceId),
-              eq(fileSnapshots.filePath, filePath),
-            ),
-          )
+          .where(and(...where))
           .orderBy(desc(fileSnapshots.createdAt))
           .limit(1)
           .get();
@@ -303,6 +382,98 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
         }
         return toDelete.length;
       },
+      // Phase 6.9: workspace-wide list of agent-triggered snapshots
+      // filtered by status. Used by `GET /agent-snapshots?status=...`
+      // to power the Review tab's History view.
+      listByStatus: (workspaceId, opts) => {
+        const baseWhere = and(
+          eq(fileSnapshots.workspaceId, workspaceId),
+          eq(fileSnapshots.trigger, opts.trigger),
+          eq(fileSnapshots.status, opts.status),
+        );
+        const where = opts.before !== undefined
+          ? and(baseWhere, lt(fileSnapshots.createdAt, opts.before))
+          : baseWhere;
+        return db
+          .select()
+          .from(fileSnapshots)
+          .where(where)
+          .orderBy(desc(fileSnapshots.createdAt))
+          .limit(opts.limit)
+          .all();
+      },
+      // L3 fix: "all agent snapshots" mode — used by `GET /agent-snapshots`
+      // without a status filter. Includes legacy rows (status IS NULL).
+      // Routed through the shared db connection so we don't pay the
+      // per-call open/close cost of a raw read-only handle.
+      listAllAgent: (workspaceId, opts) => {
+        const baseWhere = and(
+          eq(fileSnapshots.workspaceId, workspaceId),
+          eq(fileSnapshots.trigger, "agent"),
+        );
+        const where = opts.before !== undefined
+          ? and(baseWhere, lt(fileSnapshots.createdAt, opts.before))
+          : baseWhere;
+        return db
+          .select()
+          .from(fileSnapshots)
+          .where(where)
+          .orderBy(desc(fileSnapshots.createdAt))
+          .limit(opts.limit)
+          .all();
+      },
+      // Phase 6.9 hotfix: latest non-agent snapshot for a file.
+      // Returns whichever of (latest manual, latest auto) is newer;
+      // null if neither exists.
+      findLatestNonAgent: (workspaceId, filePath) => {
+        const baseWhere = and(
+          eq(fileSnapshots.workspaceId, workspaceId),
+          eq(fileSnapshots.filePath, filePath),
+        );
+        const latestManual = db
+          .select()
+          .from(fileSnapshots)
+          .where(and(baseWhere, eq(fileSnapshots.trigger, "manual")))
+          .orderBy(desc(fileSnapshots.createdAt))
+          .limit(1)
+          .get();
+        const latestAuto = db
+          .select()
+          .from(fileSnapshots)
+          .where(and(baseWhere, eq(fileSnapshots.trigger, "auto")))
+          .orderBy(desc(fileSnapshots.createdAt))
+          .limit(1)
+          .get();
+        if (!latestManual) return latestAuto ?? null;
+        if (!latestAuto) return latestManual;
+        return latestManual.createdAt >= latestAuto.createdAt ? latestManual : latestAuto;
+      },
+      setStatus: (workspaceId, snapshotId, status) => {
+        const result = db
+          .update(fileSnapshots)
+          .set({ status })
+          .where(
+            and(
+              eq(fileSnapshots.workspaceId, workspaceId),
+              eq(fileSnapshots.id, snapshotId),
+            ),
+          )
+          .returning()
+          .get();
+        return result ?? null;
+      },
+      setParent: (workspaceId, snapshotId, parentSnapshotId) => {
+        db
+          .update(fileSnapshots)
+          .set({ parentSnapshotId })
+          .where(
+            and(
+              eq(fileSnapshots.workspaceId, workspaceId),
+              eq(fileSnapshots.id, snapshotId),
+            ),
+          )
+          .run();
+      },
     };
   }
 
@@ -322,6 +493,19 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
       revision TEXT
     )
   `);
+  // Phase 6.9: approval workflow columns. Added via ALTER TABLE so
+  // legacy databases created before the migration still upgrade
+  // cleanly.
+  const columnCheck = sqlite
+    .prepare("SELECT name FROM pragma_table_info('file_snapshots')")
+    .all() as Array<{ name: string }>;
+  const columnNames = new Set(columnCheck.map((row) => row.name));
+  if (!columnNames.has("status")) {
+    sqlite.exec("ALTER TABLE file_snapshots ADD COLUMN status TEXT");
+  }
+  if (!columnNames.has("parent_snapshot_id")) {
+    sqlite.exec("ALTER TABLE file_snapshots ADD COLUMN parent_snapshot_id TEXT");
+  }
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS idx_snapshots_workspace_file
       ON file_snapshots(workspace_id, file_path, created_at)
@@ -330,24 +514,57 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_dedup
       ON file_snapshots(workspace_id, file_path, content_hash)
   `);
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_snapshots_status
+      ON file_snapshots(workspace_id, status, created_at)
+  `);
+  // L3 fix: WAL mode for concurrent read+write. See bun:sqlite path
+  // above for the rationale.
+  sqlite.exec("PRAGMA journal_mode = WAL");
+  sqlite.exec("PRAGMA synchronous = NORMAL");
+  // SELECT column list shared by every statement so the new status /
+  // parent_snapshot_id columns are picked up uniformly.
+  const selectColumns =
+    "id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision, status, parent_snapshot_id AS parentSnapshotId";
   const insert = sqlite.prepare(
-    "INSERT INTO file_snapshots (id, workspace_id, file_path, content_hash, content, size, created_at, trigger, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO file_snapshots (id, workspace_id, file_path, content_hash, content, size, created_at, trigger, revision, status, parent_snapshot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const findByDedup = sqlite.prepare(
-    "SELECT id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision FROM file_snapshots WHERE workspace_id = ? AND file_path = ? AND content_hash = ?",
+    `SELECT ${selectColumns} FROM file_snapshots WHERE workspace_id = ? AND file_path = ? AND content_hash = ?`,
   );
   const listStmt = sqlite.prepare(
-    "SELECT id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision FROM file_snapshots WHERE workspace_id = ? AND file_path = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?",
+    `SELECT ${selectColumns} FROM file_snapshots WHERE workspace_id = ? AND file_path = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
   );
   const listNoCursor = sqlite.prepare(
-    "SELECT id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision FROM file_snapshots WHERE workspace_id = ? AND file_path = ? ORDER BY created_at DESC LIMIT ?",
+    `SELECT ${selectColumns} FROM file_snapshots WHERE workspace_id = ? AND file_path = ? ORDER BY created_at DESC LIMIT ?`,
   );
-  const latestStmt = sqlite.prepare(
-    "SELECT id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision FROM file_snapshots WHERE workspace_id = ? AND file_path = ? ORDER BY created_at DESC LIMIT 1",
-  );
+  // Latest-snapshot lookup with an optional trigger filter. The SQL
+  // is built per call so we can skip the WHERE clause when no filter
+  // is provided (covers the History tab "Save snapshot" badge) and
+  // append the filter when the agent-review banner needs the
+  // "latest agent edit" specifically.
+  const buildLatestSql = (trigger: string | undefined) => {
+    const base = `SELECT ${selectColumns} FROM file_snapshots WHERE workspace_id = ? AND file_path = ?`;
+    return base + (trigger ? " AND trigger = ? ORDER BY created_at DESC LIMIT 1" : " ORDER BY created_at DESC LIMIT 1");
+  };
+  const latestNoFilter = sqlite.prepare(buildLatestSql(undefined));
+  const latestAgent = sqlite.prepare(buildLatestSql("agent"));
+  const latestAuto = sqlite.prepare(buildLatestSql("auto"));
+  const latestManual = sqlite.prepare(buildLatestSql("manual"));
   const byIdStmt = sqlite.prepare(
-    "SELECT id, workspace_id AS workspaceId, file_path AS filePath, content_hash AS contentHash, content, size, created_at AS createdAt, trigger, revision FROM file_snapshots WHERE workspace_id = ? AND id = ?",
+    `SELECT ${selectColumns} FROM file_snapshots WHERE workspace_id = ? AND id = ?`,
   );
+  // L3 fix: prepared statement for "all agent snapshots" mode.
+  // Built per call so we can include the `before` cursor predicate
+  // without a second statement.
+  const buildListAllAgentSql = (before: number | undefined) => {
+    const base = `FROM file_snapshots WHERE workspace_id = ? AND trigger = 'agent'`;
+    return before !== undefined
+      ? `SELECT ${selectColumns} ${base} AND created_at < ? ORDER BY created_at DESC LIMIT ?`
+      : `SELECT ${selectColumns} ${base} ORDER BY created_at DESC LIMIT ?`;
+  };
+  const listAllAgentNoCursor = sqlite.prepare(buildListAllAgentSql(undefined));
+  const listAllAgentWithCursor = sqlite.prepare(buildListAllAgentSql(0));
   const deleteStmt = sqlite.prepare(
     "DELETE FROM file_snapshots WHERE workspace_id = ? AND id = ?",
   );
@@ -359,6 +576,15 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
   );
   const idsAllStmt = sqlite.prepare(
     "SELECT id FROM file_snapshots WHERE workspace_id = ? AND file_path = ? ORDER BY created_at DESC",
+  );
+  // Phase 6.9: status update statement for approve/reject. Uses COALESCE
+  // so callers can pass a single `status` (or both `status` and
+  // `parentSnapshotId`) without juggling the column list each time.
+  const updateStatusStmt = sqlite.prepare(
+    "UPDATE file_snapshots SET status = ?, parent_snapshot_id = COALESCE(?, parent_snapshot_id) WHERE workspace_id = ? AND id = ?",
+  );
+  const updateParentStmt = sqlite.prepare(
+    "UPDATE file_snapshots SET parent_snapshot_id = ? WHERE workspace_id = ? AND id = ?",
   );
 
   return {
@@ -374,6 +600,8 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
           input.createdAt,
           input.trigger,
           input.revision,
+          input.status,
+          input.parentSnapshotId,
         );
         return { row: input, deduped: false };
       } catch (err) {
@@ -394,8 +622,17 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
         : (listNoCursor.all(workspaceId, filePath, opts.limit) as SnapshotRow[]);
       return rows;
     },
-    findLatest: (workspaceId, filePath) => {
-      const row = latestStmt.get(workspaceId, filePath) as SnapshotRow | undefined;
+    findLatest: (workspaceId, filePath, trigger) => {
+      let row: SnapshotRow | undefined;
+      if (trigger === "agent") {
+        row = latestAgent.get(workspaceId, filePath, "agent") as SnapshotRow | undefined;
+      } else if (trigger === "auto") {
+        row = latestAuto.get(workspaceId, filePath, "auto") as SnapshotRow | undefined;
+      } else if (trigger === "manual") {
+        row = latestManual.get(workspaceId, filePath, "manual") as SnapshotRow | undefined;
+      } else {
+        row = latestNoFilter.get(workspaceId, filePath) as SnapshotRow | undefined;
+      }
       return row ?? null;
     },
     getById: (workspaceId, snapshotId) => {
@@ -419,6 +656,46 @@ async function openSnapshotDb(path: string): Promise<SnapshotDb> {
         deleteStmt.run(workspaceId, id);
       }
       return toDelete.length;
+    },
+    // Phase 6.9: list agent snapshots by status. The SQL string is built
+    // per call so we can include/exclude the `before` cursor predicate
+    // without a second prepared statement. (Rev 3 fix: avoid the
+    // `SELECT ${base}` trap that produced `SELECT SELECT ...` — kept
+    // the same shape as the all-mode list above.)
+    listByStatus: (workspaceId, opts) => {
+      const fromClause =
+        `FROM file_snapshots WHERE workspace_id = ? AND trigger = ? AND status = ?`;
+      const sql_ = opts.before !== undefined
+        ? `SELECT ${selectColumns} ${fromClause} AND created_at < ? ORDER BY created_at DESC LIMIT ?`
+        : `SELECT ${selectColumns} ${fromClause} ORDER BY created_at DESC LIMIT ?`;
+      const params: Array<string | number> = [workspaceId, opts.trigger, opts.status];
+      if (opts.before !== undefined) params.push(opts.before);
+      params.push(opts.limit);
+      return sqlite.prepare(sql_).all(...params) as SnapshotRow[];
+    },
+    // L3 fix: all-agent mode for `GET /agent-snapshots` (no status
+    // filter). Includes legacy rows where status IS NULL.
+    listAllAgent: (workspaceId, opts) => {
+      if (opts.before !== undefined) {
+        return listAllAgentWithCursor.all(workspaceId, opts.before, opts.limit) as SnapshotRow[];
+      }
+      return listAllAgentNoCursor.all(workspaceId, opts.limit) as SnapshotRow[];
+    },
+    // Phase 6.9 hotfix: latest non-agent snapshot for a file.
+    findLatestNonAgent: (workspaceId, filePath) => {
+      const manual = latestManual.get(workspaceId, filePath, "manual") as SnapshotRow | undefined;
+      const auto = latestAuto.get(workspaceId, filePath, "auto") as SnapshotRow | undefined;
+      if (!manual) return auto ?? null;
+      if (!auto) return manual;
+      return manual.createdAt >= auto.createdAt ? manual : auto;
+    },
+    setStatus: (workspaceId, snapshotId, status) => {
+      const result = updateStatusStmt.run(status, null, workspaceId, snapshotId);
+      if (result.changes === 0) return null;
+      return byIdStmt.get(workspaceId, snapshotId) as SnapshotRow | null;
+    },
+    setParent: (workspaceId, snapshotId, parentSnapshotId) => {
+      updateParentStmt.run(parentSnapshotId, workspaceId, snapshotId);
     },
   };
 }
@@ -444,6 +721,13 @@ export type SaveSnapshotInput = {
   createdAt?: number;
   /** Override id (default shortId). Used in tests. */
   id?: string;
+  /**
+   * Phase 6.9: approval workflow fields. Only persisted when the
+   * trigger is `agent`; ignored otherwise. The slice-6.9 routes pass
+   * `parentSnapshotId` so reject can roll back to the pre-AI content.
+   */
+  status?: FileSnapshotStatus;
+  parentSnapshotId?: string | null;
 };
 
 export type SaveSnapshotResult = {
@@ -469,6 +753,16 @@ export class SnapshotStore {
   if (!isValidTrigger(trigger)) {
     throw new TypeError(`SnapshotStore.save: invalid trigger '${input.trigger}'`);
   }
+    // Phase 6.9: status is only meaningful for agent-triggered rows.
+    // Default to "pending" for a fresh agent snapshot so the Review tab
+    // can pick it up without a separate status write.
+    const status: FileSnapshotStatus | null =
+      trigger === "agent"
+        ? input.status ?? "pending"
+        : null;
+    if (status !== null && !isValidStatus(status)) {
+      throw new TypeError(`SnapshotStore.save: invalid status '${input.status}'`);
+    }
     const db = await snapshotDb(this.config);
     const row: SnapshotRow = {
       id: input.id ?? shortId(),
@@ -480,6 +774,8 @@ export class SnapshotStore {
       createdAt: input.createdAt ?? Date.now(),
       trigger,
       revision: input.revision ?? null,
+      status,
+      parentSnapshotId: input.parentSnapshotId ?? null,
     };
     const { row: stored, deduped } = db.save(row);
     if (deduped) {
@@ -500,9 +796,19 @@ export class SnapshotStore {
     return rows.map(rowToSnapshot);
   }
 
-  async findLatest(workspaceId: string, filePath: string): Promise<FileSnapshot | null> {
+  /**
+   * Find the most recent snapshot for a (workspace, file) pair, with
+   * an optional trigger filter. Used by the History tab's "Save
+   * snapshot" status badge (no filter) and by the Phase 6.8 agent
+   * review banner (`{ trigger: "agent" }`).
+   */
+  async findLatest(
+    workspaceId: string,
+    filePath: string,
+    opts?: { trigger?: FileSnapshotTrigger },
+  ): Promise<FileSnapshot | null> {
     const db = await snapshotDb(this.config);
-    const row = db.findLatest(workspaceId, filePath);
+    const row = db.findLatest(workspaceId, filePath, opts?.trigger);
     return row ? rowToSnapshot(row) : null;
   }
 
@@ -528,6 +834,97 @@ export class SnapshotStore {
   async trim(workspaceId: string, filePath: string, keepLast = SNAPSHOT_KEEP_LAST): Promise<number> {
     const db = await snapshotDb(this.config);
     return db.trim(workspaceId, filePath, keepLast);
+  }
+
+  // -----------------------------------------------------------------
+  // Phase 6.9: approval workflow
+  // -----------------------------------------------------------------
+
+  /**
+   * Mark an agent snapshot as approved. Pure metadata write — the file
+   * on disk is left as-is so git sees the post-AI content naturally.
+   * Returns the updated snapshot, or `null` if the row didn't exist
+   * (404 surface for the route handler).
+   */
+  async approve(workspaceId: string, snapshotId: string): Promise<FileSnapshot | null> {
+    const db = await snapshotDb(this.config);
+    const row = db.setStatus(workspaceId, snapshotId, "approved");
+    return row ? rowToSnapshot(row) : null;
+  }
+
+  /**
+   * Mark an agent snapshot as rejected. Caller is responsible for
+   * having already restored the file content (the route handler calls
+   * the existing restore logic first); this method only flips the
+   * status flag so the row stops showing up in the pending list.
+   */
+  async reject(workspaceId: string, snapshotId: string): Promise<FileSnapshot | null> {
+    const db = await snapshotDb(this.config);
+    const row = db.setStatus(workspaceId, snapshotId, "rejected");
+    return row ? rowToSnapshot(row) : null;
+  }
+
+  /**
+   * Phase 6.9 hotfix: latest non-agent snapshot for a file, or null.
+   * Used by the pending-approvals route to backfill the
+   * `parentSnapshotId` field on legacy agent rows so the Review
+   * tab's diff has something to render.
+   */
+  async findLatestNonAgent(
+    workspaceId: string,
+    filePath: string,
+  ): Promise<FileSnapshot | null> {
+    const db = await snapshotDb(this.config);
+    const row = db.findLatestNonAgent(workspaceId, filePath);
+    return row ? rowToSnapshot(row) : null;
+  }
+
+  /**
+   * List every agent-triggered snapshot in the workspace, optionally
+   * filtered by approval status. Cursor pagination by `createdAt` so
+   * the Review tab can page through long histories without offset
+   * drift. Returns rows newest-first.
+   */
+  async listAgentSnapshots(
+    workspaceId: string,
+    opts: { status?: FileSnapshotStatus; limit?: number; before?: number } = {},
+  ): Promise<FileSnapshot[]> {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const db = await snapshotDb(this.config);
+    // L3 fix: both branches now go through the shared `snapshotDb`
+    // connection. The previous implementation opened a fresh
+    // read-only handle per call (and a second one for the Drizzle
+    // path on top of that) — wasteful, and racy without WAL. With
+    // WAL enabled in `openSnapshotDb`, concurrent reads on the same
+    // connection are safe and cheap.
+    if (opts.status === undefined) {
+      const rows = db.listAllAgent(workspaceId, {
+        limit,
+        before: opts.before,
+      });
+      return rows.map(rowToSnapshot);
+    }
+    const rows = db.listByStatus(workspaceId, {
+      trigger: "agent",
+      status: opts.status,
+      limit,
+      before: opts.before,
+    });
+    return rows.map(rowToSnapshot);
+  }
+
+  /**
+   * Stamp `parentSnapshotId` onto a snapshot row. Used by the agent
+   * edit path: when the AI writes a new version, we mark the prior
+   * snapshot id so a later reject can roll back to the pre-AI content.
+   */
+  async setParentSnapshotId(
+    workspaceId: string,
+    snapshotId: string,
+    parentSnapshotId: string | null,
+  ): Promise<void> {
+    const db = await snapshotDb(this.config);
+    db.setParent(workspaceId, snapshotId, parentSnapshotId);
   }
 }
 

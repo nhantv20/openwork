@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 640" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f0f1a"/><stop offset="100%" stop-color="#1a1a2e"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/></filter>
+  </defs>
+  <rect width="1100" height="640" fill="url(#bg)" rx="12"/>
+
+  <text x="550" y="32" text-anchor="middle" fill="#c7d2fe" font-size="16" font-weight="700">Hackathon 48h — Timeline chi tiet</text>
+  <text x="550" y="50" text-anchor="middle" fill="#94a3b8" font-size="11">Tap trung vao MVP co the demo duoc truoc hoi dong: SlidesPreview + DocumentPreview</text>
+
+  <!-- Central timeline line -->
+  <line x1="100" y1="100" x2="100" y2="580" stroke="#4f46e5" stroke-width="3"/>
+
+  <!-- H0-H4 -->
+  <rect x="120" y="100" width="920" height="70" rx="8" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="115" width="50" height="40" rx="25" fill="#4338ca"/>
+  <text x="65" y="140" text-anchor="middle" fill="#e0e7ff" font-size="11" font-weight="700">H0</text>
+  <text x="65" y="153" text-anchor="middle" fill="#a5b4fc" font-size="9">H4</text>
+
+  <rect x="135" y="112" width="100" height="20" rx="10" fill="#4338ca"/>
+  <text x="185" y="126" text-anchor="middle" fill="#e0e7ff" font-size="10" font-weight="600">Setup moi truong</text>
+
+  <text x="150" y="148" fill="#94a3b8" font-size="10">Fork OpenWork repo + Doc code 2 app (OpenWork &amp; AionUi) + Cai dependencies + Cau hinh Electron</text>
+
+  <!-- Arrow -->
+  <line x1="65" y1="158" x2="65" y2="185" stroke="#4f46e5" stroke-width="2"/>
+  <line x1="65" y1="185" x2="100" y2="185" stroke="#4f46e5" stroke-width="2"/>
+
+  <!-- H4-H12 -->
+  <rect x="120" y="190" width="920" height="80" rx="8" fill="#065f46" stroke="#10b981" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="40" y="206" width="50" height="40" rx="25" fill="#059669"/>
+  <text x="65" y="231" text-anchor="middle" fill="#d1fae5" font-size="11" font-weight="700">H4</text>
+  <text x="65" y="244" text-anchor="middle" fill="#a7f3d0" font-size="9">H12</text>
+
+  <rect x="135" y="203" width="180" height="20" rx="10" fill="#059669"/>
+  <text x="225" y="217" text-anchor="middle" fill="#d1fae5" font-size="10" font-weight="600">Phase 1 MVP (QUAN TRONG)</text>
+
+  <text x="150" y="240" fill="#d1fae5" font-size="11" font-weight="600">SlidesPreview (PPTX → HTML via OfficeCLI)</text>
+  <text x="150" y="256" fill="#a7f3d0" font-size="10">+ DocumentPreview (DOCX → HTML via Mammoth) + IPC handler + File classification</text>
+
+  <!-- Arrow -->
+  <line x1="65" y1="250" x2="65" y2="285" stroke="#10b981" stroke-width="2"/>
+  <line x1="65" y1="285" x2="100" y2="285" stroke="#10b981" stroke-width="2"/>
+
+  <!-- H12-H24 -->
+  <rect x="120" y="290" width="920" height="70" rx="8" fill="#064e3b" stroke="#34d399" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="302" width="50" height="40" rx="25" fill="#047857"/>
+  <text x="65" y="327" text-anchor="middle" fill="#d1fae5" font-size="11" font-weight="700">H12</text>
+  <text x="65" y="340" text-anchor="middle" fill="#a7f3d0" font-size="9">H24</text>
+
+  <rect x="135" y="303" width="150" height="20" rx="10" fill="#047857"/>
+  <text x="210" y="317" text-anchor="middle" fill="#d1fae5" font-size="10" font-weight="600">Phase 1 Polish</text>
+
+  <text x="150" y="340" fill="#a7f3d0" font-size="10">Multi-tab preview bar + Syntax highlight (Shiki) + File icon mapping + Theme UI</text>
+
+  <!-- Arrow -->
+  <line x1="65" y1="345" x2="65" y2="375" stroke="#10b981" stroke-width="2"/>
+  <line x1="65" y1="375" x2="100" y2="375" stroke="#10b981" stroke-width="2"/>
+
+  <!-- H24-H36 -->
+  <rect x="120" y="380" width="920" height="70" rx="8" fill="#064e3b" stroke="#34d399" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="392" width="50" height="40" rx="25" fill="#047857"/>
+  <text x="65" y="417" text-anchor="middle" fill="#d1fae5" font-size="11" font-weight="700">H24</text>
+  <text x="65" y="430" text-anchor="middle" fill="#a7f3d0" font-size="9">H36</text>
+
+  <rect x="135" y="393" width="150" height="20" rx="10" fill="#047857"/>
+  <text x="210" y="407" text-anchor="middle" fill="#d1fae5" font-size="10" font-weight="600">Skills Research</text>
+
+  <text x="150" y="430" fill="#a7f3d0" font-size="10">Viet skill research-assistant + Test that voi 1 file PDF + Tich hop MarkItDown + Tao research note template</text>
+
+  <!-- Arrow -->
+  <line x1="65" y1="435" x2="65" y2="465" stroke="#4f46e5" stroke-width="2"/>
+  <line x1="65" y1="465" x2="100" y2="465" stroke="#4f46e5" stroke-width="2"/>
+
+  <!-- H36-H44 -->
+  <rect x="120" y="470" width="920" height="60" rx="8" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="40" y="482" width="50" height="40" rx="25" fill="#4338ca"/>
+  <text x="65" y="507" text-anchor="middle" fill="#e0e7ff" font-size="11" font-weight="700">H36</text>
+  <text x="65" y="520" text-anchor="middle" fill="#a5b4fc" font-size="9">H44</text>
+
+  <rect x="135" y="483" width="140" height="20" rx="10" fill="#4338ca"/>
+  <text x="205" y="497" text-anchor="middle" fill="#e0e7ff" font-size="10" font-weight="600">Bug fixes + UI polish</text>
+
+  <text x="150" y="516" fill="#94a3b8" font-size="10">Fix bugs con lai + Lam presentation slides + Chup screenshots cho slide demo</text>
+
+  <!-- Arrow -->
+  <line x1="65" y1="525" x2="65" y2="545" stroke="#4f46e5" stroke-width="2"/>
+  <line x1="65" y1="545" x2="100" y2="545" stroke="#4f46e5" stroke-width="2"/>
+
+  <!-- H44-H48 -->
+  <rect x="120" y="550" width="920" height="50" rx="8" fill="#312e81" stroke="#818cf8" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="40" y="558" width="50" height="36" rx="25" fill="#6366f1"/>
+  <text x="65" y="580" text-anchor="middle" fill="#e0e7ff" font-size="11" font-weight="700">H44</text>
+  <text x="65" y="593" text-anchor="middle" fill="#a5b4fc" font-size="9">H48</text>
+
+  <rect x="135" y="558" width="160" height="20" rx="10" fill="#6366f1"/>
+  <text x="215" y="572" text-anchor="middle" fill="#e0e7ff" font-size="10" font-weight="600">Rehearsal demo + Submit</text>
+
+  <text x="150" y="590" fill="#c4b5fd" font-size="10">Tap trinh bay 5 phut + Chuan bi demo that + Submit project + Chup fraimz</text>
+</svg>

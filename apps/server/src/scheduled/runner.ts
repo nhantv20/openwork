@@ -30,7 +30,12 @@ import type { ScheduledDb } from "./repo.js";
  *  unwrapped shape; the runner's `extractSessionId` accepts both. */
 export interface OpencodeJobClient {
   session: {
-    create: (input: { title: string; agent?: string; model?: { providerID: string; modelID: string } }) => Promise<unknown>;
+    /**
+     * Matches OpenCode SDK v2 `SessionCreateData` — only `parentID` and
+     * `title` are accepted. Agent + model selection must be supplied on
+     * the subsequent `session.prompt` call.
+     */
+    create: (input: { title: string; parentID?: string }) => Promise<unknown>;
     prompt: (input: {
       path: { id: string };
       body: {
@@ -223,12 +228,44 @@ export async function executeScheduledJob(
   }
   let sessionId: string | null = null;
   try {
+    // OpenCode SDK v2 SessionCreateData only accepts `{parentID?, title?}`.
+    // The `agent` and `model` selectors are passed on the subsequent
+    // `session.prompt` call below — sending them on `create` makes the
+    // engine 400 with a schema-validation error and the response comes
+    // back without an `id` (manifesting as "session.create returned no
+    // id" on the run row).
     const createResult = await client.session.create({
       title: job.name,
-      agent: job.agent,
-      ...(modelOverride ? { model: modelOverride } : {}),
     });
     sessionId = extractSessionId(createResult);
+    if (!sessionId) {
+      // Surface enough response context in the run row to debug the
+      // underlying engine call without forcing the user to read server
+      // logs. Status is the single most useful hint (401 = workspace
+      // auth not bound, 404 = engine not aware of this directory,
+      // 200-with-no-id = schema mismatch we haven't seen yet).
+      const status = isRecord(createResult) && isRecord(createResult.response)
+        ? Number((createResult.response as { status?: unknown }).status) || null
+        : null;
+      const errorSummary = isRecord(createResult) && createResult.error !== undefined
+        ? JSON.stringify(createResult.error).slice(0, 300)
+        : null;
+      log("session.create returned no id", {
+        jobId: job.id,
+        status,
+        errorSummary,
+        keys: isRecord(createResult) ? Object.keys(createResult) : [],
+      });
+      return failAndMarkLastRun(
+        deps.db,
+        job,
+        run.id,
+        now(),
+        `OpenCode /session returned no id (status=${status ?? "?"}, error=${errorSummary ?? "{}"}). ` +
+          `Check workspace OpenCode connection (host + auth + directory binding).`,
+        log,
+      );
+    }
   } catch (err) {
     return failAndMarkLastRun(
       deps.db,

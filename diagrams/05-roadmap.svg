@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f0f1a"/><stop offset="100%" stop-color="#1a1a2e"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/></filter>
+  </defs>
+  <rect width="1100" height="700" fill="url(#bg)" rx="12"/>
+
+  <text x="550" y="32" text-anchor="middle" fill="#c7d2fe" font-size="16" font-weight="700">Roadmap — Lo trinh phat trien v1.0</text>
+  <text x="550" y="50" text-anchor="middle" fill="#94a3b8" font-size="11">P0 (Core, xanh la) → P1 (Nang cao, xanh duong) → P2 (Optional, xam) → Release v1.0</text>
+
+  <!-- Timeline header -->
+  <rect x="60" y="70" width="980" height="36" rx="6" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="100" y="93" fill="#94a3b8" font-size="12" font-weight="600">Giai doan</text>
+  <text x="240" y="93" fill="#94a3b8" font-size="12" font-weight="600">Tinh nang</text>
+
+  <!-- Months -->
+  <text x="480" y="93" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="600">07/2026</text>
+  <text x="620" y="93" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="600">08/2026</text>
+  <text x="760" y="93" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="600">09/2026</text>
+  <text x="900" y="93" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="600">10/2026</text>
+
+  <!-- Grid lines -->
+  <line x1="460" y1="70" x2="460" y2="640" stroke="#2d2d4a" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="600" y1="70" x2="600" y2="640" stroke="#2d2d4a" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="740" y1="70" x2="740" y2="640" stroke="#2d2d4a" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="880" y1="70" x2="880" y2="640" stroke="#2d2d4a" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="1020" y1="70" x2="1020" y2="640" stroke="#2d2d4a" stroke-width="1" stroke-dasharray="4"/>
+
+  <!-- Section: P0 -->
+  <rect x="60" y="116" width="980" height="30" rx="4" fill="#065f46"/>
+  <text x="80" y="135" fill="#d1fae5" font-size="12" font-weight="700">P0 — Core</text>
+
+  <!-- GĐ 1: File Preview -->
+  <rect x="60" y="155" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="175" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 1</text>
+  <text x="140" y="190" text-anchor="middle" fill="#94a3b8" font-size="10">File Preview</text>
+
+  <!-- Bar -->
+  <rect x="240" y="165" width="200" height="24" rx="6" fill="#059669" opacity="0.85"/>
+  <text x="340" y="182" text-anchor="middle" fill="#d1fae5" font-size="11" font-weight="600">PPT / Word / PDF / Excel / Code</text>
+  <!-- Status badge -->
+  <rect x="450" y="165" width="60" height="18" rx="9" fill="#b45309"/>
+  <text x="480" y="178" text-anchor="middle" fill="#fde68a" font-size="9" font-weight="600">Dang lam</text>
+
+  <!-- GĐ 2: Skills Research -->
+  <rect x="60" y="208" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="228" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 2</text>
+  <text x="140" y="243" text-anchor="middle" fill="#94a3b8" font-size="10">Skills Research</text>
+
+  <rect x="240" y="218" width="280" height="24" rx="6" fill="#10b981" opacity="0.7"/>
+  <text x="380" y="235" text-anchor="middle" fill="#d1fae5" font-size="11">5-10 skill files cho workflow research</text>
+  <rect x="530" y="218" width="40" height="18" rx="9" fill="#374151"/>
+  <text x="550" y="231" text-anchor="middle" fill="#94a3b8" font-size="9">sau</text>
+
+  <!-- GĐ 5: File Tree -->
+  <rect x="60" y="261" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="281" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 5</text>
+  <text x="140" y="296" text-anchor="middle" fill="#94a3b8" font-size="10">File Tree + Browse</text>
+
+  <rect x="590" y="271" width="180" height="24" rx="6" fill="#34d399" opacity="0.7"/>
+  <text x="680" y="288" text-anchor="middle" fill="#064e3b" font-size="11">Browse workspace</text>
+
+  <!-- GĐ 6: Version History -->
+  <rect x="60" y="314" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="334" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 6</text>
+  <text x="140" y="349" text-anchor="middle" fill="#94a3b8" font-size="10">Version History</text>
+
+  <rect x="780" y="324" width="120" height="24" rx="6" fill="#6ee7b7" opacity="0.7"/>
+  <text x="840" y="341" text-anchor="middle" fill="#064e3b" font-size="11">Track &amp; Rollback</text>
+
+  <!-- Section: P1 -->
+  <rect x="60" y="373" width="980" height="30" rx="4" fill="#4338ca"/>
+  <text x="80" y="392" fill="#e0e7ff" font-size="12" font-weight="700">P1 — Nang cao</text>
+
+  <!-- GĐ 3: Scheduled Tasks -->
+  <rect x="60" y="412" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="432" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 3</text>
+  <text x="140" y="447" text-anchor="middle" fill="#94a3b8" font-size="10">Scheduled Tasks</text>
+
+  <rect x="320" y="422" width="250" height="24" rx="6" fill="#6366f1" opacity="0.85"/>
+  <text x="445" y="439" text-anchor="middle" fill="#e0e7ff" font-size="11">Cron jobs, research dinh ky</text>
+
+  <!-- GĐ 7: Multi-tab Sessions -->
+  <rect x="60" y="465" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="485" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 7</text>
+  <text x="140" y="500" text-anchor="middle" fill="#94a3b8" font-size="10">Multi-tab Sessions</text>
+
+  <rect x="600" y="475" width="120" height="24" rx="6" fill="#818cf8" opacity="0.85"/>
+  <text x="660" y="492" text-anchor="middle" fill="#e0e7ff" font-size="11">Tab UI</text>
+
+  <!-- GĐ 9: MCP Management -->
+  <rect x="60" y="518" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="538" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 9</text>
+  <text x="140" y="553" text-anchor="middle" fill="#94a3b8" font-size="10">MCP Management</text>
+
+  <rect x="740" y="528" width="100" height="24" rx="6" fill="#a5b4fc" opacity="0.7"/>
+  <text x="790" y="545" text-anchor="middle" fill="#1e1b4b" font-size="11">Unified</text>
+
+  <!-- GĐ 11: Image Generation -->
+  <rect x="60" y="571" width="160" height="44" rx="4" fill="#1e1b4b" stroke="#2d2d4a" stroke-width="1"/>
+  <text x="140" y="591" text-anchor="middle" fill="#a5b4fc" font-size="11" font-weight="600">GD 11</text>
+  <text x="140" y="606" text-anchor="middle" fill="#94a3b8" font-size="10">Image Gen</text>
+
+  <rect x="860" y="581" width="80" height="24" rx="6" fill="#c4b5fd" opacity="0.7"/>
+  <text x="900" y="598" text-anchor="middle" fill="#1e1b4b" font-size="11">DALL-E</text>
+
+  <!-- Legend -->
+  <rect x="60" y="640" width="980" height="40" rx="8" fill="#1a1a2e" stroke="#2d2d4a" stroke-width="1"/>
+  <rect x="80" y="652" width="16" height="16" rx="3" fill="#059669"/><text x="102" y="664" fill="#94a3b8" font-size="10">P0 (Core, can thiet)</text>
+  <rect x="280" y="652" width="16" height="16" rx="3" fill="#6366f1"/><text x="302" y="664" fill="#94a3b8" font-size="10">P1 (Nang cao)</text>
+  <rect x="460" y="652" width="16" height="16" rx="3" fill="#374151"/><text x="482" y="664" fill="#94a3b8" font-size="10">P2 (Optional)</text>
+  <rect x="640" y="652" width="16" height="16" rx="3" fill="#b45309"/><text x="662" y="664" fill="#94a3b8" font-size="10">Dang phat trien</text>
+</svg>

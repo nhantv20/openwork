@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 700" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0f0f1a"/><stop offset="100%" stop-color="#1a1a2e"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/></filter>
+  </defs>
+  <rect width="1100" height="700" fill="url(#bg)" rx="12"/>
+
+  <text x="550" y="32" text-anchor="middle" fill="#c7d2fe" font-size="16" font-weight="700">So sanh Kien truc: OpenWork vs AionUi</text>
+  <text x="550" y="50" text-anchor="middle" fill="#94a3b8" font-size="11">Cot trai: OpenWork (engine manh) — Cot phai: AionUi (UX manh)</text>
+
+  <!-- Left column: OpenWork -->
+  <rect x="40" y="65" width="490" height="590" rx="12" fill="#1a1a2e" stroke="#6366f1" stroke-width="2"/>
+  <rect x="40" y="65" width="490" height="36" rx="12" fill="#4338ca"/>
+  <rect x="40" y="85" width="490" height="16" fill="#4338ca"/>
+  <text x="285" y="88" text-anchor="middle" fill="#e0e7ff" font-size="14" font-weight="700">OpenWork</text>
+
+  <rect x="58" y="115" width="452" height="60" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="284" y="136" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">Stack</text>
+  <text x="284" y="152" text-anchor="middle" fill="#94a3b8" font-size="10">Electron + React 19 + Vite 6 + Tailwind + shadcn/ui</text>
+  <text x="284" y="166" text-anchor="middle" fill="#94a3b8" font-size="10">TypeScript - Zustand - TanStack Query</text>
+
+  <rect x="58" y="185" width="452" height="60" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="284" y="206" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">Engine</text>
+  <text x="284" y="222" text-anchor="middle" fill="#94a3b8" font-size="10">OpenCode CLI (Rust, 16.8k★, MIT)</text>
+  <text x="284" y="236" text-anchor="middle" fill="#94a3b8" font-size="10">UI/Engine tach biet qua SDK</text>
+
+  <rect x="58" y="255" width="452" height="75" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="284" y="276" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">Built-in Tools</text>
+  <text x="284" y="294" text-anchor="middle" fill="#6ee7b7" font-size="11">bash, edit, LSP, glob, grep</text>
+  <text x="284" y="310" text-anchor="middle" fill="#94a3b8" font-size="10">todowrite, question, browser, webfetch</text>
+  <text x="284" y="324" text-anchor="middle" fill="#94a3b8" font-size="10">Plugin system, skills</text>
+
+  <rect x="58" y="340" width="452" height="45" rx="6" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+  <text x="284" y="361" text-anchor="middle" fill="#a5b4fc" font-size="12" font-weight="600">Ejectable</text>
+  <text x="284" y="377" text-anchor="middle" fill="#6ee7b7" font-size="11">Co — chay OpenCode CLI doc lap</text>
+
+  <!-- Strengths -->
+  <rect x="58" y="400" width="452" height="55" rx="6" fill="#065f46" stroke="#10b981" stroke-width="1"/>
+  <text x="284" y="420" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Diem manh</text>
+  <text x="284" y="438" text-anchor="middle" fill="#a7f3d0" font-size="10">Dev tools manh, open ecosystem, transparent, community 16.8k★</text>
+
+  <!-- Weaknesses -->
+  <rect x="58" y="465" width="452" height="55" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="1"/>
+  <text x="284" y="485" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">Diem yeu</text>
+  <text x="284" y="503" text-anchor="middle" fill="#fde68a" font-size="10">Thieu file preview (PPT/Word/PDF), thieu 21 assistants, cron, remote</text>
+
+  <rect x="58" y="535" width="452" height="42" rx="6" fill="#1e3a5f" stroke="#93c5fd" stroke-width="1"/>
+  <text x="284" y="556" text-anchor="middle" fill="#93c5fd" font-size="12" font-weight="600">License: MIT</text>
+
+  <!-- Right column: AionUi -->
+  <rect x="570" y="65" width="490" height="590" rx="12" fill="#1a1a2e" stroke="#fca5a5" stroke-width="2"/>
+  <rect x="570" y="65" width="490" height="36" rx="12" fill="#991b1b"/>
+  <rect x="570" y="85" width="490" height="16" fill="#991b1b"/>
+  <text x="815" y="88" text-anchor="middle" fill="#fee2e2" font-size="14" font-weight="700">AionUi</text>
+
+  <rect x="588" y="115" width="452" height="60" rx="6" fill="#1e1b4b" stroke="#fca5a5" stroke-width="1"/>
+  <text x="814" y="136" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="600">Stack</text>
+  <text x="814" y="152" text-anchor="middle" fill="#94a3b8" font-size="10">Electron + React + UnoCSS + Vite</text>
+  <text x="814" y="166" text-anchor="middle" fill="#94a3b8" font-size="10">Monorepo lon (nhieu package long nhau)</text>
+
+  <rect x="588" y="185" width="452" height="60" rx="6" fill="#1e1b4b" stroke="#fca5a5" stroke-width="1"/>
+  <text x="814" y="206" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="600">Engine</text>
+  <text x="814" y="222" text-anchor="middle" fill="#94a3b8" font-size="10">Aionrs (Rust, it public)</text>
+  <text x="814" y="236" text-anchor="middle" fill="#94a3b8" font-size="10">UI/Backend qua ipcBridge</text>
+
+  <rect x="588" y="255" width="452" height="75" rx="6" fill="#1e1b4b" stroke="#fca5a5" stroke-width="1"/>
+  <text x="814" y="276" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="600">Agent Backends</text>
+  <text x="814" y="294" text-anchor="middle" fill="#fca5a5" font-size="11">21+ agent backends</text>
+  <text x="814" y="310" text-anchor="middle" fill="#94a3b8" font-size="10">Claude Code, Codex,...</text>
+  <text x="814" y="324" text-anchor="middle" fill="#94a3b8" font-size="10">Dev tools qua agent (khong native)</text>
+
+  <rect x="588" y="340" width="452" height="45" rx="6" fill="#1e1b4b" stroke="#fca5a5" stroke-width="1"/>
+  <text x="814" y="361" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="600">Ejectable</text>
+  <text x="814" y="377" text-anchor="middle" fill="#fca5a5" font-size="11">Kho — phu thuoc Aionrs closed source</text>
+
+  <!-- Strengths -->
+  <rect x="588" y="400" width="452" height="55" rx="6" fill="#065f46" stroke="#10b981" stroke-width="1"/>
+  <text x="814" y="420" text-anchor="middle" fill="#6ee7b7" font-size="11" font-weight="600">Diem manh</text>
+  <text x="814" y="438" text-anchor="middle" fill="#a7f3d0" font-size="10">File preview day du, 21 assistants, cron, remote Telegram/Lark, 30+ LLM</text>
+
+  <!-- Weaknesses -->
+  <rect x="588" y="465" width="452" height="55" rx="6" fill="#451a03" stroke="#f59e0b" stroke-width="1"/>
+  <text x="814" y="485" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">Diem yeu</text>
+  <text x="814" y="503" text-anchor="middle" fill="#fde68a" font-size="10">Engine closed source, dev tools yeu, plugins ecosystem nho</text>
+
+  <rect x="588" y="535" width="452" height="42" rx="6" fill="#1e3a5f" stroke="#93c5fd" stroke-width="1"/>
+  <text x="814" y="556" text-anchor="middle" fill="#93c5fd" font-size="12" font-weight="600">License: Apache 2.0</text>
+
+  <!-- Footer decision -->
+  <rect x="200" y="600" width="700" height="40" rx="8" fill="#065f46" stroke="#10b981" stroke-width="2"/>
+  <text x="550" y="625" text-anchor="middle" fill="#d1fae5" font-size="14" font-weight="700">Ket luan: Fork OpenWork + Port UI features tu AionUi = Co ca engine manh va UX dep</text>
+</svg>
