@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - main
       - electron-notary-test
     paths:
       - apps/app/**
@@ -21,13 +22,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: macos
-          - os: ubuntu-latest
-            artifact: linux
+            artifact: macos-arm64
           - os: windows-latest
             artifact: windows
-          - os: windows-11-arm
-            artifact: windows-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -56,8 +53,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Package Electron desktop (unpacked)
-        run: pnpm --filter @openwork/desktop package:electron:dir
+      - name: Package Electron desktop
+        run: pnpm --filter @openwork/desktop package:electron -- --publish never
 
       - name: Upload Electron artifacts
         uses: actions/upload-artifact@v4
