@@ -120,11 +120,14 @@ export default async () => {
 
 Use publish_artifact to create rich HTML pages that appear as live previews in the artifact panel — dashboards, news digests, reports, annotated diffs, design comparisons, or any output better viewed as a web page than terminal text.
 
-Publishing with the same title overwrites the existing artifact (live update). After publishing, mention the file path (e.g. "artifacts/daily-news.html") in your response so the artifact panel detects it. The artifact is also served at ${url}/<filename>.
+When publishing, include a "prompt" describing how to regenerate the artifact (e.g. "Fetch latest news from VnExpress RSS, format as HTML"). This prompt is stored and used by /antifact update to know what to do.
+
+Publishing with the same title overwrites the existing artifact (live update). Each update is tracked in history with timestamp. After publishing, mention the file path (e.g. "artifacts/daily-news.html") in your response so the artifact panel detects it. The artifact is also served at ${url}/<filename>.
 
 Use list_artifacts to see all published artifacts with URLs.
 Use delete_artifact to remove an artifact by title.
 Use artifact_info to show details about a specific artifact.
+Use artifact_prompt to read or update the regeneration prompt for an artifact.
 Use start_artifact_server / stop_artifact_server to control the HTTP server.
 Use artifact_server_status to check if the server is running.
 
@@ -136,17 +139,49 @@ The /antifact command activates the antifact skill for interactive management.`)
         args: z.object({
           title: z.string().describe("Artifact title (used as filename, e.g. 'daily-news'). Use kebab-case."),
           content: z.string().describe("Full HTML content. Must include <!DOCTYPE html>, <html>, <head>, and <body> tags."),
+          prompt: z.string().optional().describe("Optional prompt describing how to regenerate this artifact (e.g. 'Fetch latest news from VnExpress RSS, format as HTML'). Used by /antifact update."),
         }).shape,
-        async execute(args: { title: string; content: string }) {
+        async execute(args: { title: string; content: string; prompt?: string }) {
           const fs = await import("node:fs/promises")
           const nodePath = await import("node:path")
 
           const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
+          const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
           const filePath = nodePath.join(dir, `${safeName}.html`)
 
           await fs.mkdir(dir, { recursive: true })
+
+          let existingMeta: Record<string, unknown> = {}
+          try {
+            existingMeta = JSON.parse(await fs.readFile(metaPath, "utf-8"))
+          } catch {}
+
+          const now = new Date().toISOString()
+          const size = Buffer.byteLength(args.content, "utf-8")
+          const oldSize = existingMeta.lastSize as number | undefined
+
+          const history = (existingMeta.history as Array<Record<string, unknown>>) || []
+          history.push({
+            timestamp: now,
+            size,
+            summary: args.prompt
+              ? `Regenerated via prompt: ${args.prompt.slice(0, 80)}`
+              : oldSize !== undefined && oldSize !== size
+                ? `Updated (${((size - oldSize) / 1024).toFixed(1)} KB change)`
+                : "Updated",
+          })
+
           await fs.writeFile(filePath, args.content, "utf-8")
+
+          const meta: Record<string, unknown> = {
+            prompt: args.prompt ?? existingMeta.prompt ?? "",
+            lastRunAt: now,
+            createdAt: existingMeta.createdAt || now,
+            lastSize: size,
+            history: history.slice(-20),
+          }
+          await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), "utf-8")
 
           const relativePath = `artifacts/${safeName}.html`
           const url = serverUrl ? `${serverUrl}/${encodeURIComponent(safeName)}.html` : relativePath
@@ -157,6 +192,8 @@ The /antifact command activates the antifact skill for interactive management.`)
               path: relativePath,
               url,
               title: args.title,
+              lastRunAt: now,
+              totalUpdates: history.length,
             },
           }
         },
@@ -177,8 +214,18 @@ The /antifact command activates the antifact skill for interactive management.`)
               htmlFiles.map(async (f) => {
                 const stat = await fs.stat(nodePath.join(dir, f))
                 const url = serverUrl ? `${serverUrl}/${encodeURIComponent(f)}` : ""
+                const name = f.replace(/\.html$/, "")
+                let lastRun = ""
+                let updates = 0
+                try {
+                  const meta = JSON.parse(await fs.readFile(nodePath.join(dir, `${name}.meta.json`), "utf-8"))
+                  lastRun = meta.lastRunAt ? new Date(meta.lastRunAt).toLocaleString() : ""
+                  updates = (meta.history || []).length
+                } catch {}
+                const updatesStr = updates > 0 ? ` (${updates} updates)` : ""
+                const lastRunStr = lastRun ? `, last: ${lastRun}` : ""
                 const urlStr = url ? ` → ${url}` : ""
-                return `  ${f} (${(stat.size / 1024).toFixed(1)} KB, ${new Date(stat.mtimeMs).toISOString().slice(0, 16).replace("T", " ")})${urlStr}`
+                return `  ${f}${updatesStr}${lastRunStr} (${(stat.size / 1024).toFixed(1)} KB)${urlStr}`
               }),
             )
             return `Published artifacts:\n${details.join("\n")}`
@@ -199,13 +246,12 @@ The /antifact command activates the antifact skill for interactive management.`)
           const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const filePath = nodePath.join(dir, `${safeName}.html`)
+          const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
 
-          try {
-            await fs.unlink(filePath)
-            return `Deleted artifact: ${safeName}.html`
-          } catch {
-            return `Artifact not found: ${safeName}.html`
-          }
+          let deleted = ""
+          try { await fs.unlink(filePath); deleted += `${safeName}.html ` } catch {}
+          try { await fs.unlink(metaPath); deleted += `${safeName}.meta.json ` } catch {}
+          return deleted ? `Deleted: ${deleted}` : `Artifact not found: ${safeName}`
         },
       },
       artifact_info: {
@@ -220,25 +266,96 @@ The /antifact command activates the antifact skill for interactive management.`)
           const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const filePath = nodePath.join(dir, `${safeName}.html`)
+          const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
 
           try {
             const stat = await fs.stat(filePath)
             const content = await fs.readFile(filePath, "utf-8")
             const titleMatch = content.match(/<title>([^<]+)<\/title>/i)
-            const title = titleMatch ? titleMatch[1] : safeName
+            const titleName = titleMatch ? titleMatch[1] : safeName
             const preview = content.replace(/<[^>]+>/g, "").trim().slice(0, 200)
             const url = serverUrl ? `${serverUrl}/${encodeURIComponent(safeName)}.html` : "N/A"
 
-            return [
-              `Title: ${title}`,
+            let prompt = ""
+            let lastRunAt = ""
+            let createdAt = ""
+            let history: Array<Record<string, unknown>> = []
+            try {
+              const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"))
+              prompt = meta.prompt || ""
+              lastRunAt = meta.lastRunAt || ""
+              createdAt = meta.createdAt || ""
+              history = meta.history || []
+            } catch {}
+
+            const lines = [
+              `Title: ${titleName}`,
               `File: ${safeName}.html`,
               `URL: ${url}`,
               `Size: ${(stat.size / 1024).toFixed(1)} KB`,
-              `Modified: ${new Date(stat.mtimeMs).toLocaleString()}`,
-              `Preview: ${preview}...`,
-            ].join("\n")
+              `Created: ${createdAt ? new Date(createdAt).toLocaleString() : "N/A"}`,
+              `Last run: ${lastRunAt ? new Date(lastRunAt).toLocaleString() : "N/A"}`,
+              `Updates: ${history.length}`,
+            ]
+            if (prompt) {
+              lines.push(`Prompt: ${prompt}`)
+            }
+            lines.push(`Preview: ${preview}...`)
+
+            if (history.length > 0) {
+              lines.push("")
+              lines.push("── History ──")
+              for (const entry of history.slice(-5)) {
+                const t = entry.timestamp ? new Date(entry.timestamp as string).toLocaleString() : "?"
+                const s = entry.summary || ""
+                lines.push(`  ${t} — ${s}`)
+              }
+            }
+
+            return lines.join("\n")
           } catch {
-            return `Artifact not found: ${safeName}.html`
+            return `Artifact not found: ${safeName}`
+          }
+        },
+      },
+      artifact_prompt: {
+        description: "Read or update the regeneration prompt for an artifact. The prompt tells the agent what to do when updating.",
+        args: z.object({
+          title: z.string().describe("Artifact title (e.g. 'daily-news')."),
+          prompt: z.string().optional().describe("New prompt to set. Omit to read the current prompt."),
+        }).shape,
+        async execute(args: { title: string; prompt?: string }) {
+          const fs = await import("node:fs/promises")
+          const nodePath = await import("node:path")
+
+          const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
+          const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
+          const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
+
+          if (args.prompt !== undefined) {
+            let existingMeta: Record<string, unknown> = {}
+            try {
+              existingMeta = JSON.parse(await fs.readFile(metaPath, "utf-8"))
+            } catch {}
+            existingMeta.prompt = args.prompt
+            const history = (existingMeta.history as Array<Record<string, unknown>>) || []
+            history.push({
+              timestamp: new Date().toISOString(),
+              summary: `Prompt updated: ${args.prompt.slice(0, 80)}`,
+            })
+            existingMeta.history = history.slice(-20)
+            await fs.writeFile(metaPath, JSON.stringify(existingMeta, null, 2), "utf-8")
+            return `Prompt updated for "${safeName}":\n${args.prompt}`
+          }
+
+          try {
+            const raw = await fs.readFile(metaPath, "utf-8")
+            const meta = JSON.parse(raw)
+            return meta.prompt
+              ? `Prompt for "${safeName}":\n${meta.prompt}`
+              : `No prompt saved for "${safeName}".`
+          } catch {
+            return `No prompt saved for "${safeName}".`
           }
         },
       },

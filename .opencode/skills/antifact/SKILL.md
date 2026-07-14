@@ -11,42 +11,56 @@ Manage HTML artifacts published through the `publish_artifact` tool. Artifacts a
 ## Commands
 
 ### `/antifact create <title>`
-Create a new artifact. You provide the HTML content. The artifact is saved and served at `http://127.0.0.1:26316/<title>.html`.
+Create a new artifact with HTML content. **Always ask for and save a `prompt`** — a short description of how to regenerate this artifact (e.g. "Fetch latest news from VnExpress RSS, format as HTML with sections"). The prompt is used by `/antifact update`.
 
 ### `/antifact update <title>`
-Update an existing artifact by publishing new HTML content to the same title. The URL stays the same.
+Read the saved prompt for this artifact, then follow it to regenerate fresh content. The URL stays the same. Each update is logged in the artifact's history with timestamp and summary.
 
 ### `/antifact list`
-List all published artifacts with their URLs, sizes, and last modified times.
+List all published artifacts with URLs, sizes, last run times, and update counts.
 
 ### `/antifact delete <title>`
-Delete an artifact file from the server.
+Delete an artifact (removes .html + .meta.json with history).
 
 ### `/antifact info <title>`
-Show details about a specific artifact: URL, size, last modified, content preview.
+Show full details: URL, size, created/last run dates, update history (last 5), content preview, and saved prompt.
 
-### `/antifact serve <directory>`
-Start serving a custom directory as static files (useful for sharing multiple files).
+### `/antifact prompt <title> [new prompt]`
+Read or update the regeneration prompt. Without arguments, shows the current prompt. Changes are tracked in history.
 
-## How it works
+## Tracking
 
-- The artifact-publisher plugin provides `publish_artifact` and `list_artifacts` tools.
-- A built-in HTTP server runs at `http://127.0.0.1:26316` serving the `artifacts/` directory.
-- Publishing with the same title overwrites the existing file (live update).
-- The artifact panel in OpenWork also auto-detects artifact files from agent responses.
+Every artifact stores a `.meta.json` alongside its `.html` with:
+
+| Field | Description |
+|---|---|
+| `prompt` | How to regenerate this artifact |
+| `createdAt` | When first published |
+| `lastRunAt` | When last updated |
+| `lastSize` | File size in bytes |
+| `history` | Array of `{timestamp, summary}` — last 20 entries |
 
 ## Examples
 
 ```
 /antifact create daily-news
-→ Agent fetches news, generates HTML, publishes to http://127.0.0.1:26316/daily-news.html
+→ Agent asks for prompt, saves it, publishes
 
 /antifact list
-→ Lists all artifacts with URLs and details
+→ Lists all artifacts with URLs, last run, update count
 
 /antifact update daily-news
-→ Fetches fresh news, overwrites the same URL
+→ Reads saved prompt, regenerates, logs to history
+
+/antifact info daily-news
+→ Shows size, dates, history, preview, prompt
+
+/antifact prompt daily-news
+→ Shows: "Fetch latest news from VnExpress RSS..."
+
+/antifact prompt daily-news "Fetch from different source"
+→ Updates prompt, logs change in history
 
 /antifact delete old-report
-→ Removes old-report.html from the server
+→ Removes .html + .meta.json
 ```
