@@ -1,5 +1,20 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
-  "plugin": ["opencode-chrome-devtools@1.0.4", ".opencode/plugins/markitdown.ts"]
+  "plugin": [
+    "opencode-chrome-devtools@1.0.4",
+    ".opencode/plugins/markitdown.ts",
+    ".opencode/plugins/brand-docs.ts",
+    ".opencode/plugins/artifact-publisher.ts"
+  ],
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+  "command": {
+    "antifact": {
+      "template": "Run the antifact skill to handle this artifact management request: {{input}}",
+      "description": "Manage HTML artifacts — create, update, list, delete, and serve",
+      "subtask": true
+    }
+  }
 }
