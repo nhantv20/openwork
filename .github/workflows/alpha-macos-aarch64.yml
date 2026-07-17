@@ -183,7 +183,7 @@ jobs:
           set -euo pipefail
           if [ -z "${CSC_LINK:-}" ]; then
             echo "CSC_LINK is empty — packaging without code signing"
-            unset CSC_LINK CSC_KEY_PASSWORD
+            unset CSC_LINK CSC_KEY_PASSWORD MACOS_NOTARIZE
           fi
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
