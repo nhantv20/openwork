@@ -145,6 +145,24 @@ jobs:
           echo "Electron alpha artifacts must be signed and notarized. Set MACOS_NOTARIZE=true and provide Apple signing secrets." >&2
           exit 1
 
+      - name: Write notary API key
+        if: env.MACOS_NOTARIZE == 'true'
+        env:
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$APPLE_NOTARY_API_KEY_P8_BASE64" ]; then
+            echo "Notary API key is empty — alpha build will continue without notarization."
+            exit 0
+          fi
+
+          NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$APPLE_NOTARY_API_KEY_P8_BASE64" | base64 --decode > "$NOTARY_KEY_PATH"
+          chmod 600 "$NOTARY_KEY_PATH"
+
+          echo "NOTARY_KEY_PATH=$NOTARY_KEY_PATH" >> "$GITHUB_ENV"
+
       - name: Build Electron alpha app
         if: env.MACOS_NOTARIZE == 'true'
         shell: bash
@@ -152,7 +170,7 @@ jobs:
           TARGET: aarch64-apple-darwin
         run: pnpm --filter @openwork/desktop build:electron
 
-      - name: Package Electron alpha (macOS, signed + notarized)
+      - name: Package Electron alpha (macOS)
         if: env.MACOS_NOTARIZE == 'true'
         env:
           CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
@@ -163,6 +181,10 @@ jobs:
           APPLE_API_KEY_PATH: ${{ env.NOTARY_KEY_PATH }}
         run: |
           set -euo pipefail
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "CSC_LINK is empty — packaging without code signing"
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
             --mac \
