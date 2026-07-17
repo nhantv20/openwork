@@ -16,5 +16,15 @@
       "description": "Manage HTML artifacts — create, update, list, delete, and serve",
       "subtask": true
     }
+  },
+  "mcp": {
+    "OfficeMCP": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "officemcp"
+      ],
+      "enabled": true
+    }
   }
 }
