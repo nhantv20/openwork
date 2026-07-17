@@ -1427,7 +1427,7 @@ export function SessionPage(props: SessionPageProps) {
             aria-label="Toggle sidebar"
             title="Toggle sidebar"
             className={cn(
-              "mac:absolute mac:top-[6px] mac:z-50 mac:flex mac:h-7 mac:w-7 mac:items-center mac:justify-center mac:rounded-full mac:border mac:border-border mac:bg-background mac:shadow-sm titlebar-no-drag mac:transition-[left,transform] mac:duration-200 mac:ease-out hover:mac:bg-accent",
+              "hidden mac:absolute mac:top-[6px] mac:z-50 mac:flex mac:h-7 mac:w-7 mac:items-center mac:justify-center mac:rounded-full mac:border mac:border-border mac:bg-background mac:shadow-sm titlebar-no-drag mac:transition-[left,transform] mac:duration-200 mac:ease-out hover:mac:bg-accent",
               sidebarOpen
                 ? // Sidebar visible — sit just inside the right edge of the
                   // sidebar column, on the same row as the macOS traffic

@@ -1,0 +1,27 @@
+{
+  "prompt": "Fetch latest Vietnam news from web search. Search each category separately: Chính trị, Kinh tế, Pháp luật, Giáo dục, Y tế, Thể thao, Thời tiết, Quốc tế. Get 2-3 stories per category (19+ stories total). Build HTML with Vietnamese language at artifacts/tin-tuc-viet-nam-tuan-qua.html using publish_artifact.
+
+CRITICAL REQUIREMENTS:
+1. Every story MUST have a unique image (no duplicate img URLs across the page). Find each article's image on the source website.
+2. Every story title MUST be a clickable <a href=\"...\"> linking to the original article.
+3. Verify each image URL returns HTTP 200 before using. Skip if 404/inaccessible and find another.
+4. Use direct image URLs (jpg, png, webp) from news sites — NOT placeholder services.
+5. Include KPI cards at top with key economic/social metrics.
+
+Categories (use BOTH VietnamPlus and Soha for more unique images):
+- Chính trị & Xã hội: Tô Lâm visits, government policies, social welfare
+- Kinh tế & Đầu tư: GDP 8.18%, FDI 34.65B USD, highway tolls, exports
+- Pháp luật: major court cases, crackdowns, intellectual property
+- Giáo dục: Olympic medals, university admissions
+- Y tế: health warnings, disease outbreaks
+- Thể thao: Vietnam football team, World Cup
+- Thời tiết & Thiên tai: weather warnings, floods, El Nino
+- Quốc tế: global news affecting Vietnam (Hormuz, US-VN relations)
+
+Style: clean modern layout, red/gold Vietnam theme, responsive, mobile-friendly. Each section: section-header with icon+h2, story cards with img thumbnail + content + source. Use CSS loading=lazy on images.
+
+DO NOT use the task/antifact agent for publishing — build HTML directly and use publish_artifact tool.",
+  "created": "2026-07-15T00:31:12.000Z",
+  "updated": "2026-07-15T18:00:00.000Z",
+  "source": "Vietnam+, Báo Chính phủ, Thanh Niên, Soha, Tiền Phong, Tuổi Trẻ, VTC News, VietnamNet, VnExpress, Dân trí, VOV"
+}
