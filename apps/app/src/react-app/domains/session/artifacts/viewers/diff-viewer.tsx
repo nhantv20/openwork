@@ -1,10 +1,12 @@
 /** @jsxImportSource react */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { codeToHtml } from "shiki";
 import { cn } from "@/lib/utils";
 
 interface DiffViewerProps {
   diff: string;
   className?: string;
+  language?: string;
 }
 
 interface DiffHunk {
@@ -21,6 +23,10 @@ interface DiffLine {
   oldLineNumber?: number;
   newLineNumber?: number;
 }
+
+type HighlightedLines = Record<string, string>;
+
+const SHIKI_THEME = "github-light";
 
 function parseDiff(diff: string): DiffHunk[] {
   const hunks: DiffHunk[] = [];
@@ -73,8 +79,110 @@ function parseDiff(diff: string): DiffHunk[] {
   return hunks;
 }
 
-export function DiffViewer({ diff, className }: DiffViewerProps) {
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function extractLineHtml(shikiHtml: string): string[] {
+  const lines: string[] = [];
+  const lineRegex = /<span class="line">(.*?)<\/span>/g;
+  let match;
+  while ((match = lineRegex.exec(shikiHtml)) !== null) {
+    lines.push(match[1]);
+  }
+  return lines;
+}
+
+function useHighlightedHunks(hunks: DiffHunk[], language: string | undefined): HighlightedLines {
+  const [highlighted, setHighlighted] = useState<HighlightedLines>({});
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (!language) {
+      setHighlighted({});
+      return;
+    }
+
+    let cancelled = false;
+    const lang = mapExtensionToShikiLang(language);
+
+    async function highlight() {
+      const result: HighlightedLines = {};
+
+      for (let i = 0; i < hunks.length; i++) {
+        const hunk = hunks[i];
+        if (!mountedRef.current || cancelled) return;
+
+        const oldLines = hunk.lines
+          .filter((l) => l.type === "context" || l.type === "remove")
+          .map((l) => l.content);
+        const newLines = hunk.lines
+          .filter((l) => l.type === "context" || l.type === "add")
+          .map((l) => l.content);
+
+        const [oldHtml, newHtml] = await Promise.all([
+          oldLines.length > 0 ? codeToHtml(oldLines.join("\n"), { lang, theme: SHIKI_THEME }) : null,
+          newLines.length > 0 ? codeToHtml(newLines.join("\n"), { lang, theme: SHIKI_THEME }) : null,
+        ]);
+
+        if (!mountedRef.current || cancelled) return;
+
+        const oldParsed = oldHtml ? extractLineHtml(oldHtml) : [];
+        const newParsed = newHtml ? extractLineHtml(newHtml) : [];
+
+        let oldIdx = 0;
+        let newIdx = 0;
+        for (const line of hunk.lines) {
+          const key = `${i}:${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${line.type}`;
+          if (line.type === "context" || line.type === "remove") {
+            result[key] = oldParsed[oldIdx] ?? escapeHtml(line.content);
+            oldIdx++;
+          }
+          if (line.type === "context" || line.type === "add") {
+            result[key] = newParsed[newIdx] ?? escapeHtml(line.content);
+            newIdx++;
+          }
+        }
+      }
+
+      if (!cancelled && mountedRef.current) {
+        setHighlighted(result);
+      }
+    }
+
+    highlight();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hunks, language]);
+
+  return highlighted;
+}
+
+function mapExtensionToShikiLang(extOrLang: string): string {
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    mjs: "javascript", cjs: "javascript", mts: "typescript", cts: "typescript",
+    py: "python", rb: "ruby", rs: "rust", go: "go", java: "java",
+    kt: "kotlin", swift: "swift", cs: "csharp", php: "php",
+    c: "c", cpp: "cpp", h: "c", hpp: "cpp",
+    css: "css", scss: "scss", sass: "sass", less: "less",
+    html: "html", htm: "html", xml: "xml", json: "json", jsonc: "json",
+    yaml: "yaml", yml: "yaml", md: "markdown", mdx: "markdown",
+    sql: "sql", sh: "bash", bash: "bash", zsh: "bash",
+    vue: "vue", svelte: "svelte", astro: "astro",
+    graphql: "graphql", gql: "graphql",
+    dockerfile: "dockerfile", toml: "toml", ini: "ini",
+    lua: "lua", r: "r", dart: "dart", prisma: "prisma",
+  };
+  return map[extOrLang] ?? extOrLang;
+}
+
+export function DiffViewer({ diff, className, language }: DiffViewerProps) {
   const hunks = useMemo(() => parseDiff(diff), [diff]);
+  const highlighted = useHighlightedHunks(hunks, language);
 
   if (hunks.length === 0) {
     return (
@@ -94,12 +202,22 @@ export function DiffViewer({ diff, className }: DiffViewerProps) {
           <div className="grid grid-cols-2 divide-x divide-border font-mono text-xs">
             <div className="bg-red-2/30">
               {hunk.lines.map((line, idx) => (
-                <DiffLineRow key={`old-${idx}`} line={line} side="old" />
+                <DiffLineRow
+                  key={`old-${idx}`}
+                  line={line}
+                  side="old"
+                  highlightedHtml={highlighted[`${hunkIdx}:${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${line.type}`]}
+                />
               ))}
             </div>
             <div className="bg-green-2/30">
               {hunk.lines.map((line, idx) => (
-                <DiffLineRow key={`new-${idx}`} line={line} side="new" />
+                <DiffLineRow
+                  key={`new-${idx}`}
+                  line={line}
+                  side="new"
+                  highlightedHtml={highlighted[`${hunkIdx}:${line.oldLineNumber ?? ""}:${line.newLineNumber ?? ""}:${line.type}`]}
+                />
               ))}
             </div>
           </div>
@@ -109,7 +227,7 @@ export function DiffViewer({ diff, className }: DiffViewerProps) {
   );
 }
 
-function DiffLineRow({ line, side }: { line: DiffLine; side: "old" | "new" }) {
+function DiffLineRow({ line, side, highlightedHtml }: { line: DiffLine; side: "old" | "new"; highlightedHtml?: string }) {
   const isVisible =
     (side === "old" && (line.type === "context" || line.type === "remove")) ||
     (side === "new" && (line.type === "context" || line.type === "add"));
@@ -134,7 +252,14 @@ function DiffLineRow({ line, side }: { line: DiffLine; side: "old" | "new" }) {
       <span className="w-2 shrink-0 select-none text-muted-foreground">
         {line.type === "add" ? "+" : line.type === "remove" ? "-" : " "}
       </span>
-      <span className="whitespace-pre-wrap break-all">{line.content || " "}</span>
+      {highlightedHtml ? (
+        <span
+          className="whitespace-pre-wrap break-all [&>span]:!bg-transparent"
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
+      ) : (
+        <span className="whitespace-pre-wrap break-all">{line.content || " "}</span>
+      )}
     </div>
   );
 }

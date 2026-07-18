@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { DiffViewer } from "./viewers/diff-viewer";
 import { useGitStatus } from "./hooks/use-git-status";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -31,15 +32,28 @@ type Props = {
   filePath: string;
 };
 
+type RefMode = "symbolic" | "sha";
+
 const SYMBOLIC_OPTIONS: Array<{ value: "HEAD" | "STAGED" | "WORKING"; label: string }> = [
   { value: "HEAD", label: "HEAD" },
   { value: "STAGED", label: "Staged" },
   { value: "WORKING", label: "Working tree" },
 ];
 
+const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
+
 export function GitReviewTab({ client, workspaceId, filePath }: Props) {
+  const [refMode, setRefMode] = useState<RefMode>("symbolic");
   const [fromRef, setFromRef] = useState<"HEAD" | "STAGED" | "WORKING">("HEAD");
   const [toRef, setToRef] = useState<"HEAD" | "STAGED" | "WORKING">("WORKING");
+  const [fromSha, setFromSha] = useState("");
+  const [toSha, setToSha] = useState("");
+
+  const effectiveFrom = refMode === "sha" ? fromSha : fromRef;
+  const effectiveTo = refMode === "sha" ? toSha : toRef;
+  const canDiff = effectiveFrom !== effectiveTo
+    && effectiveFrom.length >= 7
+    && effectiveTo.length >= 7;
 
   // Reuse the same query ArtifactPanel already fetched — TanStack
   // returns the cached entry synchronously, so the badge below renders
@@ -47,18 +61,18 @@ export function GitReviewTab({ client, workspaceId, filePath }: Props) {
   const statusQuery = useGitStatus({ client, workspaceId, filePath });
 
   const diffQuery = useQuery({
-    queryKey: ["git-diff", workspaceId, filePath, fromRef, toRef] as const,
-    queryFn: () => client.getGitDiff(workspaceId, { path: filePath, from: fromRef, to: toRef }),
-    enabled: fromRef !== toRef,
-    // 2s is short enough to feel live but long enough to dedupe rapid
-    // dropdown toggles and avoid hammering the server.
+    queryKey: ["git-diff", workspaceId, filePath, effectiveFrom, effectiveTo] as const,
+    queryFn: () => client.getGitDiff(workspaceId, { path: filePath, from: effectiveFrom, to: effectiveTo }),
+    enabled: refMode === "symbolic" ? fromRef !== toRef : canDiff,
     staleTime: 2_000,
+    retry: false,
   });
 
   // Trivial case: same ref on both sides → no diff possible.
-  if (fromRef === toRef) {
+  if (refMode === "symbolic" && fromRef === toRef) {
     return (
       <div className="flex h-full flex-col gap-3 p-4 text-xs" data-testid="git-review-tab">
+        <RefModeToggle mode={refMode} onChange={setRefMode} />
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">From</span>
           <RefPicker value={fromRef} onChange={setFromRef} />
@@ -77,10 +91,32 @@ export function GitReviewTab({ client, workspaceId, filePath }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4 text-xs" data-testid="git-review-tab">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground">From</span>
-        <RefPicker value={fromRef} onChange={setFromRef} />
-        <span className="text-muted-foreground">To</span>
-        <RefPicker value={toRef} onChange={setToRef} />
+        <RefModeToggle mode={refMode} onChange={setRefMode} />
+        {refMode === "symbolic" ? (
+          <>
+            <span className="text-muted-foreground">From</span>
+            <RefPicker value={fromRef} onChange={setFromRef} />
+            <span className="text-muted-foreground">To</span>
+            <RefPicker value={toRef} onChange={setToRef} />
+          </>
+        ) : (
+          <>
+            <span className="text-muted-foreground">From</span>
+            <Input
+              value={fromSha}
+              onChange={(e) => setFromSha(e.target.value)}
+              placeholder="commit SHA"
+              className="h-7 w-[140px] text-xs font-mono"
+            />
+            <span className="text-muted-foreground">To</span>
+            <Input
+              value={toSha}
+              onChange={(e) => setToSha(e.target.value)}
+              placeholder="commit SHA"
+              className="h-7 w-[140px] text-xs font-mono"
+            />
+          </>
+        )}
         {status?.currentBranch ? (
           <span className="ml-2 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-muted-foreground" data-testid="git-review-branch">
             {status.currentBranch}
@@ -112,7 +148,7 @@ export function GitReviewTab({ client, workspaceId, filePath }: Props) {
           // content. An empty untracked file legitimately has no diff.
           <EmptyState message="File is not tracked by git (and is empty)." />
         ) : !diffQuery.data?.diff ? (
-          <EmptyState message={emptyDiffMessage(fromRef, toRef)} />
+          <EmptyState message={emptyDiffMessage(refMode === "symbolic" ? fromRef : "SHA", refMode === "symbolic" ? toRef : "SHA")} />
         ) : (
           <>
             {diffQuery.data.fileUntracked ? (
@@ -125,10 +161,31 @@ export function GitReviewTab({ client, workspaceId, filePath }: Props) {
                 Diff truncated — file too large to display in full.
               </div>
             ) : null}
-            <DiffViewer diff={diffQuery.data.diff} className="p-3" />
+            <DiffViewer diff={diffQuery.data.diff} className="p-3" language={filePath.split(".").pop()} />
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function RefModeToggle({ mode, onChange }: { mode: RefMode; onChange: (m: RefMode) => void }) {
+  return (
+    <div className="flex items-center gap-1 rounded-md border border-border p-0.5 text-[10px]">
+      <button
+        type="button"
+        onClick={() => onChange("symbolic")}
+        className={`rounded-sm px-1.5 py-0.5 ${mode === "symbolic" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        Refs
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("sha")}
+        className={`rounded-sm px-1.5 py-0.5 ${mode === "sha" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}
+      >
+        SHA
+      </button>
     </div>
   );
 }
@@ -168,5 +225,6 @@ function emptyDiffMessage(from: string, to: string): string {
   if (from === "HEAD" && to === "WORKING") return "Working tree matches HEAD.";
   if (from === "HEAD" && to === "STAGED") return "No staged changes.";
   if (from === "STAGED" && to === "WORKING") return "Working tree matches index.";
+  if (from === "SHA" || to === "SHA") return "No changes between the selected commits.";
   return "No changes between the selected refs.";
 }

@@ -17,6 +17,7 @@ import {
   getFileAtRef,
   getFileTrackedStatus,
   getGitRawDiff,
+  getRepoGitStatus,
   GitRefNotFoundError,
   InvalidGitRefError,
   isCompatibleRefPair,
@@ -103,6 +104,22 @@ export function addGitRoutes(options: RegisterGitRoutesOptions): void {
       isStaged: status.staged,
       isModified: status.modified,
       hasUncommittedChanges: status.staged || status.modified,
+    });
+  });
+
+  // 1b. GET /workspace/:id/git/repo-status — full repo status (all files)
+  addRoute(routes, "GET", "/workspace/:id/git/repo-status", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const status = await getRepoGitStatus(workspace.path);
+    if (!status) {
+      return jsonResponse({ isGitRepo: false, branch: null, staged: [], modified: [], untracked: [] });
+    }
+    return jsonResponse({
+      isGitRepo: true,
+      branch: status.branch,
+      staged: status.staged,
+      modified: status.modified,
+      untracked: status.untracked,
     });
   });
 

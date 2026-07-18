@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ExternalLink, File, Folder, FolderOpen, Loader2, MoreHorizontal, Search, X } from "lucide-react";
+import { ChevronRight, ExternalLink, File, Folder, FolderOpen, Loader2, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useFileExplorerStore, useWorkspaceExpandedPaths } from "./file-explorer-store";
+import { useRepoGitStatus } from "../artifacts/hooks/use-repo-git-status";
 
 const EDITOR_OPTIONS: ReadonlyArray<{ id: string; label: string; command: string }> = [
   { id: "vscode", label: "VS Code", command: "code" },
@@ -34,6 +35,8 @@ const EDITOR_OPTIONS: ReadonlyArray<{ id: string; label: string; command: string
   { id: "nvim", label: "Neovim", command: "nvim" },
   { id: "vim", label: "Vim", command: "vim" },
 ];
+
+type GitStatusForNode = "staged" | "modified" | "untracked";
 
 function getFileIcon(name: string): { Icon: React.ComponentType<{ className?: string }>; color: string } {
   // Per-extension icons were removed for visual consistency. All files use
@@ -264,6 +267,7 @@ function FileNode({
   onReveal,
   onOpenInEditor,
   isSelected,
+  gitStatus,
 }: {
   node: FlatNode;
   onToggle: (path: string) => void;
@@ -271,7 +275,15 @@ function FileNode({
   onReveal: (path: string) => void;
   onOpenInEditor: (path: string, command: string) => void;
   isSelected: boolean;
+  gitStatus: GitStatusForNode | null;
 }) {
+  const statusDot = !gitStatus ? null : gitStatus === "staged" ? (
+    <span className="size-1.5 rounded-full bg-green-500 shrink-0" title="Staged" />
+  ) : gitStatus === "modified" ? (
+    <span className="size-1.5 rounded-full bg-amber-500 shrink-0" title="Modified" />
+  ) : gitStatus === "untracked" ? (
+    <span className="size-1.5 rounded-full bg-orange-500 shrink-0" title="Untracked" />
+  ) : null;
   const showEditorMenu = isElectronRuntime();
   return (
     <div
@@ -316,6 +328,7 @@ function FileNode({
           );
         })()
       )}
+      {statusDot}
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
       {showEditorMenu ? (
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -403,10 +416,26 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   const parentRef = useRef<HTMLDivElement>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isReloading, setIsReloading] = useState(false);
   // Snapshot the user-chosen expand state when entering search mode so we can
   // restore it on clear. Avoids stomping on manual expansion while searching.
   // Snapshot lives in a ref so it doesn't trigger re-renders itself.
   const savedExpandedRef = useRef<Set<string> | null>(null);
+
+  const repoGitStatus = useRepoGitStatus({ client, workspaceId });
+  const gitStatusMap = useMemo(() => {
+    const map = new Map<string, GitStatusForNode>();
+    const data = repoGitStatus.data;
+    if (!data?.isGitRepo) return map;
+    for (const f of data.staged) map.set(f, "staged");
+    for (const f of data.modified) {
+      if (!map.has(f)) map.set(f, "modified");
+    }
+    for (const f of data.untracked) {
+      if (!map.has(f)) map.set(f, "untracked");
+    }
+    return map;
+  }, [repoGitStatus.data]);
 
   const projectName = useMemo(() => {
     const parts = workspaceRoot.split("/");
@@ -436,8 +465,10 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     setTree(newTree);
 
     if (persisted) {
-      // Returning user: their expand state lives in the store, and loadDirChildren
-      // is kicked off by the user clicking a folder. Nothing else to do here.
+      const expanded = new Set(persisted.expandedPaths);
+      for (const dir of persisted.expandedPaths) {
+        void loadDirChildren(dir, expanded);
+      }
       return;
     }
 
@@ -506,6 +537,7 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   // tab store lazily to avoid a hard dependency from the tree component.
   useEffect(() => {
     if (!sessionId || !workspaceId) return;
+    if (tree.length === 0) return;
     let cancelled = false;
     void (async () => {
       const { usePanelTabStore } = await import("./panel-tab-store");
@@ -514,11 +546,10 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
       const activeTabId = sessions[sessionId]?.activeTabId;
       if (!activeTabId || !activeTabId.startsWith("file:")) return;
       const filePath = activeTabId.slice("file:".length);
-      // selectedPath is case-insensitive in the panel store; normalise so
-      // the tree (which uses the workspace's actual casing) matches.
-      const treePath = filePath.toLowerCase() === filePath
-        ? filePath
-        : findMatchingTreePath(tree, filePath);
+      // The panel store stores paths case-insensitively (lowercased).
+      // Only set selectedPath when the file exists in the tree — otherwise
+      // the persisted selectedPath from selectFile is already correct.
+      const treePath = findMatchingTreePath(tree, filePath);
       if (!treePath) return;
       if (cancelled) return;
       setSelectedPath(workspaceId, treePath);
@@ -531,7 +562,7 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, workspaceId]);
+  }, [sessionId, workspaceId, tree]);
 
   const loadDirChildren = useCallback(
     async (path: string, expanded: Set<string>) => {
@@ -666,6 +697,17 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     [absolutePath],
   );
 
+  const handleReload = useCallback(async () => {
+    setIsReloading(true);
+    try {
+      const paths = [...expandedPaths];
+      await refetch();
+      await Promise.all(paths.map((dir) => loadDirChildren(dir, new Set(paths))));
+    } finally {
+      setIsReloading(false);
+    }
+  }, [refetch, expandedPaths, loadDirChildren]);
+
   const allFlatNodes = useMemo(() => flattenTree(tree, expandedPaths), [tree, expandedPaths]);
   const trimmedQuery = searchQuery.trim().toLowerCase();
   const flatNodes = useMemo(() => {
@@ -679,6 +721,16 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     estimateSize: () => 26,
     overscan: 10,
   });
+
+  const selectedFileIndex = useMemo(() => {
+    if (!selectedPath) return -1;
+    return flatNodes.findIndex((n) => n.path === selectedPath);
+  }, [flatNodes, selectedPath]);
+
+  useEffect(() => {
+    if (selectedFileIndex < 0) return;
+    virtualizer.scrollToIndex(selectedFileIndex, { align: "center" });
+  }, [selectedFileIndex, virtualizer]);
 
   if (isLoading) {
     return (
@@ -732,6 +784,22 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
       <div className="flex items-center gap-1 border-b border-border p-2 text-sm font-medium">
         <FolderOpen className="size-4 shrink-0 text-amber-9" />
         <span className="min-w-0 flex-1 truncate">{projectName}</span>
+        <Tooltip>
+          <TooltipTrigger
+            render={(
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-6"
+                onClick={() => void handleReload()}
+                aria-label="Refresh file tree"
+              >
+                <RefreshCw className={cn("size-3.5", isReloading && "animate-spin")} />
+              </Button>
+            )}
+          />
+          <TooltipContent>Refresh file tree</TooltipContent>
+        </Tooltip>
         {isElectronRuntime() ? (
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip>
@@ -876,6 +944,7 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
                     onReveal={handleReveal}
                     onOpenInEditor={handleOpenInEditor}
                     isSelected={selectedPath === node.path}
+                    gitStatus={node.kind === "file" ? (gitStatusMap.get(node.path) ?? null) : null}
                   />
                 </div>
               );

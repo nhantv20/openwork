@@ -58,6 +58,13 @@ export type GitRawDiff = {
   truncated: boolean;
 };
 
+export type RepoGitStatus = {
+  branch: string | null;
+  staged: string[];
+  modified: string[];
+  untracked: string[];
+};
+
 export type GitTrackedStatus = {
   tracked: boolean;
   staged: boolean;
@@ -453,4 +460,28 @@ export async function getFileTrackedStatus(
     staged: stagedRes.stdout.trim().length > 0,
     modified: modifiedRes.stdout.trim().length > 0,
   };
+}
+
+export async function getRepoGitStatus(workspaceRoot: string): Promise<RepoGitStatus | null> {
+  if (!(await isGitRepo(workspaceRoot))) return null;
+  const branch = await getCurrentBranch(workspaceRoot);
+  const result = await runGit(workspaceRoot, ["status", "--porcelain"], { allowExitCodes: [0, 128] });
+  if (result.code !== 0) {
+    return { branch, staged: [], modified: [], untracked: [] };
+  }
+
+  const staged: string[] = [];
+  const modified: string[] = [];
+  const untracked: string[] = [];
+
+  for (const line of result.stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const raw = line.substring(0, 2);
+    const file = line.substring(3).trim();
+    if (raw[0] !== " " && raw[0] !== "?") staged.push(file);
+    if (raw[1] !== " " && raw[1] !== "?") modified.push(file);
+    if (raw === "??") untracked.push(file);
+  }
+
+  return { branch, staged, modified, untracked };
 }

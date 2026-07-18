@@ -179,7 +179,7 @@ function DiffBody({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-auto">
-        <DiffViewer diff={visibleDiff} />
+        <DiffViewer diff={visibleDiff} language={filePath.split(".").pop()} />
       </div>
     </div>
   );
