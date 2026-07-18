@@ -161,7 +161,7 @@ let data = null, flt = 'all', poll = null;
 
 async function fetchS() {
   try {
-    const r = await fetch('/mcp/status');
+    const r = await fetch('./status');
     return r.ok ? r.json() : null;
   } catch { return null; }
 }

@@ -72,6 +72,8 @@ import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
+import { ArtifactsView } from "@/react-app/domains/settings/pages/artifacts-view";
+import { McpDashboardView } from "@/react-app/domains/settings/pages/mcp-dashboard-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
 import { CloudMarketplacesView } from "@/react-app/domains/settings/pages/cloud-marketplaces-view";
@@ -276,6 +278,10 @@ function parseSettingsPath(pathname: string): {
       return { tab: head, redirectPath: null };
     case "den":
       return { tab: "cloud-account", redirectPath: "cloud-account" };
+    case "artifacts":
+      return { tab: "artifacts", redirectPath: null };
+    case "mcp-dashboard":
+      return { tab: "mcp-dashboard", redirectPath: null };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
@@ -2055,6 +2061,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
           />
         );
+      case "artifacts":
+        return (
+          <ArtifactsView
+            openworkClient={openworkClient}
+            selectedWorkspaceId={selectedWorkspaceId}
+            selectedWorkspaceRoot={selectedWorkspaceRoot}
+            isRemoteWorkspace={isRemoteWorkspace}
+            activeClient={activeClient}
+            navigate={navigate}
+          />
+        );
+      case "mcp-dashboard":
+        return <McpDashboardView />;
       case "extensions":
         return (
           <ExtensionsView
@@ -2187,6 +2206,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <ScheduledTasksView
             openworkServerClient={openworkClient}
             selectedWorkspaceId={selectedWorkspaceId}
+            workspaces={workspaces}
           />
         );
       case "advanced":

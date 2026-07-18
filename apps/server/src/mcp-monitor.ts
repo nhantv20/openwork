@@ -51,10 +51,14 @@ function checkProcessRunning(command: string): boolean {
   if (!cmd) return false;
   const name = cmd.replace(/^.*[/\\]/, "").replace(/\.(exe|cmd|ps1)$/i, "");
   try {
-    execSync(`Get-Process -Name "${name}" -ErrorAction SilentlyContinue`, {
-      stdio: "pipe",
-      timeout: 3000,
-    });
+    if (process.platform === "win32") {
+      execSync(`Get-Process -Name "${name}" -ErrorAction SilentlyContinue`, {
+        stdio: "pipe",
+        timeout: 3000,
+      });
+      return true;
+    }
+    execSync(`pgrep -f "${name}"`, { stdio: "pipe", timeout: 3000 });
     return true;
   } catch {
     return false;

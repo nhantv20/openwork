@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import { CalendarClock, Plus, PlugZap, Search, Sparkles } from "lucide-react";
+import { Archive, CalendarClock, Plus, PlugZap, Search, Server, Sparkles } from "lucide-react";
 
 import {
   SidebarGroup,
@@ -33,6 +33,10 @@ export type QuickActionsGroupProps = {
   onOpenScheduled?: () => void;
   /** Open Settings → Remote access / Connect Mobile. */
   onOpenConnectMobile?: () => void;
+  /** Open MCP Server dashboard. */
+  onOpenMcpDashboard?: () => void;
+  /** Open Artifacts dashboard. */
+  onOpenArtifactsDashboard?: () => void;
   className?: string;
 };
 
@@ -131,6 +135,32 @@ export function QuickActionsGroup(props: QuickActionsGroupProps) {
               >
                 <CalendarClock className="size-4" />
                 <span className="flex-1 truncate">{t("workspace_list.quick_actions_scheduled")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
+
+          {props.onOpenMcpDashboard ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={props.onOpenMcpDashboard}
+                aria-label="MCP Server"
+                data-testid="quick-action-mcp-server"
+              >
+                <Server className="size-4" />
+                <span className="flex-1 truncate">MCP Server</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : null}
+
+          {props.onOpenArtifactsDashboard ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={props.onOpenArtifactsDashboard}
+                aria-label="Artifacts"
+                data-testid="quick-action-artifacts"
+              >
+                <Archive className="size-4" />
+                <span className="flex-1 truncate">Artifacts</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ) : null}

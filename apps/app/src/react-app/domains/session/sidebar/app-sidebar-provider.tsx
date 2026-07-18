@@ -32,6 +32,9 @@ export type SidebarContextValue = {
   onOpenScheduled?: () => void;
   /** Quick actions group: navigate to Settings → Remote access / Connect Mobile. */
   onOpenConnectMobile?: () => void;
+  /** Open MCP Server dashboard in external browser. */
+  onOpenMcpDashboard?: () => void;
+  onOpenArtifactsDashboard?: () => void;
   expandWorkspace: (workspaceId: string) => void;
   toggleWorkspaceExpanded: (workspaceId: string) => void;
   toggleSessionExpanded: (sessionId: string) => void;

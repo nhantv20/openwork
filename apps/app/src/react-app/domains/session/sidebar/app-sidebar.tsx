@@ -591,6 +591,10 @@ export type AppSidebarProps = {
   onOpenScheduled?: () => void;
   /** Quick actions group: navigate to Settings → Remote access / Connect Mobile. */
   onOpenConnectMobile?: () => void;
+  /** Open MCP Server dashboard. */
+  onOpenMcpDashboard?: () => void;
+  /** Open Artifacts dashboard. */
+  onOpenArtifactsDashboard?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -729,6 +733,8 @@ export function AppSidebar(props: AppSidebarProps) {
     onOpenSkills: props.onOpenSkills,
     onOpenScheduled: props.onOpenScheduled,
     onOpenConnectMobile: props.onOpenConnectMobile,
+    onOpenMcpDashboard: props.onOpenMcpDashboard,
+    onOpenArtifactsDashboard: props.onOpenArtifactsDashboard,
     expandWorkspace,
     toggleWorkspaceExpanded,
     toggleSessionExpanded,
@@ -767,6 +773,8 @@ export function AppSidebar(props: AppSidebarProps) {
             onOpenSkills={props.onOpenSkills}
             onOpenScheduled={props.onOpenScheduled}
             onOpenConnectMobile={props.onOpenConnectMobile}
+            onOpenMcpDashboard={props.onOpenMcpDashboard}
+            onOpenArtifactsDashboard={props.onOpenArtifactsDashboard}
           />
         ) : null}
         <LazyMotion features={domMax}>
