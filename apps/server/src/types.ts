@@ -101,6 +101,15 @@ export interface ServerConfig {
   hostTokenSource: "cli" | "env" | "file" | "generated";
   logFormat: LogFormat;
   logRequests: boolean;
+  /**
+   * When false, the in-process scheduler does not boot and
+   * `/api/scheduled/*` returns 503. This lets the desktop app spawn
+   * openwork-server WITHOUT the scheduler and rely on a separate
+   * orchestrator-hosted scheduler that survives the Electron app
+   * closing. Defaults to `true` so existing single-process
+   * deployments keep working unchanged.
+   */
+  enableScheduler: boolean;
 }
 
 export interface Capabilities {

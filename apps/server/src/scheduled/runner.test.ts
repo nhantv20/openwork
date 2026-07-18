@@ -90,12 +90,12 @@ function makeClient(overrides: Partial<OpencodeJobClient> = {}): {
   prompt: ReturnType<typeof vi.fn>;
   abort: ReturnType<typeof vi.fn>;
 } {
-  const create = vi.fn(async (_input: { title: string }) => ({ data: { id: "session-xyz" }, response: new Response() }));
-  const prompt = vi.fn(async (_input: { path: { id: string }; body: { parts: Array<{ type: "text"; text: string }> } }) => ({
+  const create = vi.fn(async (_input: { title?: string }) => ({ data: { id: "session-xyz" }, response: new Response() }));
+  const prompt = vi.fn(async (_input: { sessionID: string; parts: Array<{ type: "text"; text: string }> }) => ({
     data: { ok: true },
     response: new Response(),
   }));
-  const abort = vi.fn(async (_input: { path: { id: string } }) => ({ data: { ok: true }, response: new Response() }));
+  const abort = vi.fn(async (_input: { sessionID: string }) => ({ data: { ok: true }, response: new Response() }));
   // Default workspace model — matches the in-app "use the workspace
   // default" flow. Tests that want to exercise the no-model branch
   // override `client.getDefaultModel = async () => null`.
@@ -243,13 +243,12 @@ describe("executeScheduledJob — happy path", () => {
     // OpenCode SDK v2 SessionCreateData only accepts {parentID?, title?}.
     // Agent + model selection is forwarded on the subsequent prompt call.
     expect(create).toHaveBeenCalledWith({ title: "Test job" });
+    // SDK v2: flat params at the top level.
     expect(prompt).toHaveBeenCalledWith({
-      path: { id: "session-xyz" },
-      body: {
-        parts: [{ type: "text", text: "Summarise today" }],
-        agent: "build",
-        model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-      },
+      sessionID: "session-xyz",
+      parts: [{ type: "text", text: "Summarise today" }],
+      agent: "build",
+      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
     });
     expect(abort).not.toHaveBeenCalled();
 
@@ -281,13 +280,12 @@ describe("executeScheduledJob — happy path", () => {
       getClient: () => client,
     });
     expect(create).toHaveBeenCalledWith({ title: "modeled" });
+    // SDK v2: flat params at the top level.
     expect(prompt).toHaveBeenCalledWith({
-      path: { id: "session-xyz" },
-      body: {
-        parts: [{ type: "text", text: "hello" }],
-        agent: "build",
-        model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-      },
+      sessionID: "session-xyz",
+      parts: [{ type: "text", text: "hello" }],
+      agent: "build",
+      model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
     });
   });
 
@@ -299,11 +297,10 @@ describe("executeScheduledJob — happy path", () => {
       getClient: () => client,
     });
     expect(create).toHaveBeenCalledWith({ title: "Test job" });
+    // SDK v2: flat params at the top level.
     expect(prompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        body: expect.objectContaining({
-          model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
-        }),
+        model: { providerID: "fpt", modelID: "DeepSeek-V4-Flash" },
       }),
     );
   });
@@ -364,7 +361,7 @@ describe("executeScheduledJob — session cleanup", () => {
     expect(run.status).toBe("failed");
     // Abort is best-effort, so we just check it was called with the
     // sessionId the runner created.
-    expect(abort).toHaveBeenCalledWith({ path: { id: "session-xyz" } });
+    expect(abort).toHaveBeenCalledWith({ sessionID: "session-xyz" });
   });
 
   test("aborts the session when session.prompt returns an error", async () => {
@@ -378,7 +375,7 @@ describe("executeScheduledJob — session cleanup", () => {
       getClient: () => client,
     });
     expect(run.status).toBe("failed");
-    expect(abort).toHaveBeenCalledWith({ path: { id: "session-xyz" } });
+    expect(abort).toHaveBeenCalledWith({ sessionID: "session-xyz" });
   });
 
   test("does NOT abort the session on success", async () => {
@@ -408,7 +405,7 @@ describe("executeScheduledJob — timeout", () => {
 
     expect(run.status).toBe("failed");
     expect(run.error).toContain("Timed out after 50ms");
-    expect(abort).toHaveBeenCalledWith({ path: { id: "session-xyz" } });
+    expect(abort).toHaveBeenCalledWith({ sessionID: "session-xyz" });
   });
 
   test("DEFAULT_JOB_TIMEOUT_MS is 10 minutes (plan §5)", () => {

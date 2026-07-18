@@ -19,6 +19,7 @@
  * - `nextRunAt` is updated after every successful fire so the DB stays
  *   in sync with the schedule.
  */
+import { Cron } from "croner";
 import type { JobRun, ScheduledJob, ServerConfig, WorkspaceInfo } from "../types.js";
 import type { ScheduledDb } from "./repo.js";
 
@@ -27,24 +28,27 @@ import type { ScheduledDb } from "./repo.js";
  *  full SDK. The return type is intentionally loose because the SDK
  *  wraps the result in `{ data, error, response }` and a couple of
  *  legacy call sites (e.g. `server.ts:3333`) still pass through the
- *  unwrapped shape; the runner's `extractSessionId` accepts both. */
+ *  unwrapped shape; the runner's `extractSessionId` accepts both.
+ *
+ *  FIX BUG #2: signatures now match OpenCode SDK v2
+ *  (`@opencode-ai/sdk` 1.x). The previous v1-style shape
+ *  `{ path: {id}, body: {parts, agent, model} }` silently dropped
+ *  unknown fields inside the hey-api runtime, so `sessionID` came
+ *  through as `undefined` and the engine 404'd on
+ *  `POST /session/undefined/messages`. v2 takes flat params
+ *  (`sessionID`, `parts`, `model`, `agent` all at the top level). */
 export interface OpencodeJobClient {
   session: {
-    /**
-     * Matches OpenCode SDK v2 `SessionCreateData` — only `parentID` and
-     * `title` are accepted. Agent + model selection must be supplied on
-     * the subsequent `session.prompt` call.
-     */
-    create: (input: { title: string; parentID?: string }) => Promise<unknown>;
+    /** SDK v2: only `parentID` and `title` are accepted; agent + model
+     *  are passed on the subsequent `prompt` call. */
+    create: (input: { title?: string; parentID?: string }) => Promise<unknown>;
     prompt: (input: {
-      path: { id: string };
-      body: {
-        parts: Array<{ type: "text"; text: string }>;
-        agent?: string;
-        model?: { providerID: string; modelID: string };
-      };
+      sessionID: string;
+      parts: Array<{ type: "text"; text: string }>;
+      agent?: string;
+      model?: { providerID: string; modelID: string };
     }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
-    abort: (input: { path: { id: string } }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
+    abort: (input: { sessionID: string }) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
   };
   /**
    * Optional — resolve the workspace's default model in the form
@@ -99,6 +103,19 @@ function parseModelString(value: string): { providerID: string; modelID: string;
   return variant ? { providerID, modelID, variant } : { providerID, modelID };
 }
 
+/** Compute the next fire time for a job in ms-since-epoch. Returns
+ *  `null` if the cron expression is unparseable — we don't want to
+ *  throw from the success path because the run already succeeded. */
+function computeNextRunAt(job: ScheduledJob): number | null {
+  try {
+    const c = new Cron(job.cronExpression, { timezone: job.timezone });
+    const next = c.nextRun();
+    return next ? next.getTime() : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractSessionId(createResult: unknown): string | null {
   // The OpenCode SDK v2 returns `{ data, error, response }`. Some server
   // surfaces (e.g. mocks in tests) also unwrap the result. Accept both
@@ -128,20 +145,24 @@ export async function executeScheduledJob(
   // Plan §4.1 #9: skip-overlap. If a previous run is still in flight for
   // this job, do not create a new session — record a `skipped_overlap`
   // row and return.
-  const inflight = deps.db.countRunningRuns(job.id);
-  if (inflight > 0) {
+  //
+  // FIX BUG #3: replaced the old `countRunningRuns` then `createRun`
+  // pair (which had a TOCTOU race — manual "Run now" while an
+  // auto-trigger was firing could double-create sessions) with an
+  // atomic `claimRun` that runs both statements inside BEGIN IMMEDIATE.
+  const claimed = deps.db.claimRun({ jobId: job.id, scheduledFor });
+  if (claimed.skipped) {
     log("skip-overlap: previous run still in flight", { jobId: job.id });
-    const run = deps.db.createRun({ jobId: job.id, scheduledFor });
+    const overlapRun = deps.db.createRun({ jobId: job.id, scheduledFor });
     return (
-      deps.db.updateRun(run.id, {
+      deps.db.updateRun(overlapRun.id, {
         status: "skipped_overlap",
         finishedAt: now(),
         error: "Previous run was still in flight when this fire came in",
-      }) ?? run
+      }) ?? overlapRun
     );
   }
-
-  const run = deps.db.createRun({ jobId: job.id, scheduledFor });
+  const run = claimed.run;
   let workspace: WorkspaceInfo;
   try {
     workspace = await deps.resolveWorkspace(job.workspaceId);
@@ -295,7 +316,11 @@ export async function executeScheduledJob(
   // failure that we're recording on the run row.
   const abortSession = () => {
     log("aborting session", { jobId: job.id, sessionId });
-    client.session.abort({ path: { id: sessionId } }).catch(() => undefined);
+    // FIX BUG #2: SDK v2 takes `{ sessionID }` at the top level, not
+    // `{ path: { id } }`. The old shape was silently dropped by the
+    // hey-api client, so abort calls did nothing and a timed-out
+    // session kept consuming the engine.
+    client.session.abort({ sessionID: sessionId }).catch(() => undefined);
   };
 
   // 3) Send the prompt under a timeout. On timeout, abort the session
@@ -304,12 +329,15 @@ export async function executeScheduledJob(
   try {
     promptResult = await withTimeout(
       client.session.prompt({
-        path: { id: sessionId },
-        body: {
-          parts: [{ type: "text", text: job.prompt }],
-          agent: job.agent,
-          ...(modelOverride ? { model: modelOverride } : {}),
-        },
+        // FIX BUG #2: SDK v2 takes flat params — `sessionID`, `parts`,
+        // `agent`, `model` are all at the top level. The old shape
+        // `{ path: {id}, body: {...} }` was silently dropped by the
+        // hey-api runtime, so `sessionID` came through as `undefined`
+        // and the engine 404'd.
+        sessionID: sessionId,
+        parts: [{ type: "text", text: job.prompt }],
+        agent: job.agent,
+        ...(modelOverride ? { model: modelOverride } : {}),
       }),
       timeoutMs,
       () => {
@@ -353,18 +381,25 @@ export async function executeScheduledJob(
     );
   }
 
-  // 5) Success — record outcome + bump the parent job.
+// 5) Success — record outcome + bump the parent job.
   const finished = deps.db.updateRun(run.id, { status: "success", finishedAt: now() });
   // Best-effort: the run row is the source of truth for run status.
   // If we can't bump the parent job's last-run metadata, the next
   // fire will sort it out via the scheduler's own bookkeeping.
   try {
+    // FIX BUG #11: compute the next fire time from the cron expression
+    // so the Settings list and the DB stay in sync with croner. Without
+    // this update the `nextRunAt` row stayed frozen at the original
+    // schedule — every subsequent fire would show "fires at <original
+    // timestamp>" even though croner had long since moved on.
+    const nextRunAt = computeNextRunAt(job);
     deps.db.updateJob(job.id, {
       lastRunAt: now(),
       lastRunSessionId: sessionId,
+      ...(nextRunAt !== null ? { nextRunAt } : {}),
     });
   } catch (err) {
-    log("updateJob failed after success; run status stays 'success'", {
+    log("updateJob failed after success; run row keeps the error", {
       jobId: job.id,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -391,9 +426,14 @@ function failAndMarkLastRun(
 ): JobRun {
   const updated = finalizeFailed(db, runId, finishedAt, error);
   try {
+    // FIX BUG #11 (failure path): keep `nextRunAt` in sync after a
+    // failure too — croner still fires on schedule even when a run
+    // fails, so the DB row must reflect that.
+    const nextRunAt = computeNextRunAt(job);
     db.updateJob(job.id, {
       lastRunAt: finishedAt,
       lastRunSessionId: null,
+      ...(nextRunAt !== null ? { nextRunAt } : {}),
     });
   } catch (err) {
     log("updateJob failed after run failure; run row keeps the error", {

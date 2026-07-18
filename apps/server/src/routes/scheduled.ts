@@ -229,16 +229,39 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
     return jsonResponse({ models, defaultModel });
   });
 
+  // GET /api/scheduled/health — read-only health probe that the UI
+  // uses to decide whether to show a banner ("scheduler offline") or
+  // silently degrade. Lets the desktop know that the standalone
+  // orchestrator-hosted scheduler isn't running.
+  addRoute(routes, "GET", "/api/scheduled/health", "client", async () => {
+    const scheduler = resolveScheduler(options);
+    return jsonResponse({
+      schedulerRunning: Boolean(scheduler),
+      inflight: scheduler?.isBusy() ?? false,
+    });
+  });
+
   // POST /api/scheduled
   addRoute(routes, "POST", "/api/scheduled", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    if (!resolveScheduler(options)) {
+      throw new ApiError(
+        503,
+        "scheduler_unavailable",
+        "Scheduler is not running on this server. Start a standalone scheduler (or run openwork-server without --disable-scheduler) before creating jobs.",
+      );
+    }
     const body = await readJsonBody(ctx.request);
     const workspaceId = asString(body.workspaceId, "workspaceId", MAX_NAME_LENGTH);
     const name = asString(body.name, "name", MAX_NAME_LENGTH);
     const prompt = asString(body.prompt, "prompt", MAX_PROMPT_LENGTH);
     const cronExpression = asString(body.cron, "cron", MAX_CRON_LENGTH);
-    const timezone = asString(body.timezone ?? "Asia/Tokyo", "timezone", MAX_TIMEZONE_LENGTH);
+    const timezone = asString(
+      body.timezone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone?.trim() || "UTC"),
+      "timezone",
+      MAX_TIMEZONE_LENGTH,
+    );
     const agent = asString(body.agent ?? DEFAULT_AGENT, "agent", MAX_AGENT_LENGTH);
     if (!KNOWN_AGENTS.has(agent)) {
       throw new ApiError(400, "invalid_agent", `Unknown agent '${agent}'`, {
@@ -330,6 +353,13 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
   addRoute(routes, "PATCH", "/api/scheduled/:id", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    if (!resolveScheduler(options)) {
+      throw new ApiError(
+        503,
+        "scheduler_unavailable",
+        "Scheduler is not running on this server. Start a standalone scheduler before mutating jobs.",
+      );
+    }
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);
@@ -409,6 +439,13 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
   addRoute(routes, "DELETE", "/api/scheduled/:id", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    if (!resolveScheduler(options)) {
+      throw new ApiError(
+        503,
+        "scheduler_unavailable",
+        "Scheduler is not running on this server. Start a standalone scheduler before mutating jobs.",
+      );
+    }
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);
@@ -427,6 +464,13 @@ export function registerScheduledRoutes(options: RegisterScheduledRoutesOptions)
   addRoute(routes, "POST", "/api/scheduled/:id/run", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
+    if (!resolveScheduler(options)) {
+      throw new ApiError(
+        503,
+        "scheduler_unavailable",
+        "Scheduler is not running on this server. Manual runs require the scheduler process to be alive (start openwork-server without --disable-scheduler, or run the standalone orchestrator-hosted scheduler).",
+      );
+    }
     const db = await resolveDb(options);
     const id = ctx.params.id ?? "";
     const job = db.getJob(id);

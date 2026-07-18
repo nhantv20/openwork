@@ -54,6 +54,7 @@ const baseConfig: ServerConfig = {
   hostTokenSource: "cli",
   logFormat: "pretty",
   logRequests: false,
+  enableScheduler: true,
 };
 
 const workspace: WorkspaceInfo = {
@@ -326,6 +327,33 @@ describe("POST /api/scheduled", () => {
     });
     expect(res.status).toBe(409);
     expect((res.body as { code: string }).code).toBe("too_many_jobs");
+  });
+
+  test("returns 503 scheduler_unavailable when scheduler is not registered", async () => {
+    // Simulate the desktop-spawned server: scheduler disabled, the
+    // singleton in the routes registry is null.
+    setActiveScheduler(null);
+    registerScheduledRoutes({
+      routes,
+      config: baseConfig,
+      jsonResponse: (data, status = 200) => Response.json(data, { status }),
+      parseOptionalBoolean: () => undefined,
+      parseOptionalPositiveInteger: () => undefined,
+      readJsonBody: async (req) => (await req.json()) as Record<string, unknown>,
+      resolveWorkspace: async () => workspace,
+      getOpencodeClient: stubClient,
+      ensureWritable: () => {},
+      requireClientScope: () => {},
+    });
+    const res = await callAs("POST", "/api/scheduled", {
+      workspaceId: "ws-1",
+      name: "x",
+      prompt: "y",
+      cron: "0 9 * * *",
+      timezone: "Asia/Tokyo",
+    });
+    expect(res.status).toBe(503);
+    expect((res.body as { code: string }).code).toBe("scheduler_unavailable");
   });
 
   test("rejects malformed model with 400 invalid_model", async () => {

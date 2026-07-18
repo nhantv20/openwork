@@ -8,6 +8,8 @@ import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
+import { getMcpStatuses } from "./mcp-monitor.js";
+import { dashboardHtmlResponse } from "./mcp-dashboard.js";
 import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
@@ -707,22 +709,44 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   // from `runtime.sqlite` (S1) and registered with croner (S2). The
   // executor (S3) creates a session and sends the prompt via the
   // workspace's OpenCode client.
+  //
+  // Skipped when `--disable-scheduler` is set so the desktop app can
+  // spawn this server without competing with the orchestrator-hosted
+  // scheduler that survives Electron closing. The HTTP routes stay
+  // registered — `/api/scheduled/*` returns 503 when the scheduler
+  // singleton is null, so the UI gracefully says "scheduler
+  // unavailable, retry when standalone scheduler is running".
+  if (!config.enableScheduler) {
+    logger.log("info", "Scheduler disabled via --disable-scheduler; /api/scheduled/* will return 503");
+  }
   // Open the scheduled-jobs DB once and reuse it across runs.
   const scheduledJobsDb = await scheduledDb(config);
 
-  const scheduler = new Scheduler({
-    config,
-    executor: (job, scheduledFor) =>
-      executeScheduledJob(job, scheduledFor, {
+  const scheduler = config.enableScheduler
+    ? new Scheduler({
         config,
-        db: scheduledJobsDb,
-        resolveWorkspace: (id) => resolveWorkspace(config, id),
-        getClient: (workspace) =>
-          createWorkspaceOpencodeClient(config, workspace) as unknown as OpencodeJobClient,
-      }).then(() => undefined),
-  });
-  setActiveScheduler(scheduler);
-  await scheduler.boot();
+        executor: (job, scheduledFor) =>
+          executeScheduledJob(job, scheduledFor, {
+            config,
+            db: scheduledJobsDb,
+            resolveWorkspace: (id) => resolveWorkspace(config, id),
+            // FIX BUG #1: wrap the raw OpenCode client with the helper that
+            // exposes `getDefaultModel()`. Without it, auto-triggered jobs
+            // that rely on the workspace's default model always fail with
+            // "No model available" because `runner.ts:199` skips the
+            // override path and `runner.ts:219` then trips the no-model
+            // safety check.
+            getClient: (workspace) =>
+              wrapOpencodeJobClient(createWorkspaceOpencodeClient(config, workspace)),
+          }).then(() => undefined),
+      })
+    : null;
+  if (scheduler) {
+    setActiveScheduler(scheduler);
+    await scheduler.boot();
+  } else {
+    setActiveScheduler(null);
+  }
 
   const serverOptions: {
     hostname: string;
@@ -2270,6 +2294,23 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items, engineSync: engineMcpSyncState(workspace.id) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/mcp/status", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const statuses = await getMcpStatuses(config, workspace);
+    return jsonResponse({ statuses, engineSync: engineMcpSyncState(workspace.id) });
+  });
+
+  addRoute(routes, "GET", "/mcp/dashboard", "none", async () => {
+    return dashboardHtmlResponse();
+  });
+
+  addRoute(routes, "GET", "/mcp/status", "none", async () => {
+    const workspace = config.workspaces[0];
+    if (!workspace) return jsonResponse({ statuses: [], engineSync: null });
+    const statuses = await getMcpStatuses(config, workspace);
+    return jsonResponse({ statuses, engineSync: engineMcpSyncState(workspace.id) });
   });
 
   // Portable export of installed skills and MCP servers (including

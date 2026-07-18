@@ -194,6 +194,14 @@ export interface ScheduledDb {
   failStaleRunningRuns(): number;
   /** Count of `running` runs for a job — used for skip-overlap (plan §4.1 #9). */
   countRunningRuns(jobId: string): number;
+  /** Atomic claim: returns a fresh pending run row for the job, OR
+   *  returns `{ skipped: true }` when a previous run is still in
+   *  flight. Replaces the previous count→create sequence which had a
+   *  race window between the two statements — manual "Run now" while
+   *  an auto-trigger was firing could double-create sessions. */
+  claimRun(input: { jobId: string; scheduledFor: number }):
+    | { run: JobRun; skipped: false }
+    | { run: null; skipped: true; reason: "overlap" };
 }
 
 /* ---------- Path resolution ---------- */
@@ -391,6 +399,51 @@ async function openBunDb(path: string): Promise<ScheduledDb> {
         .where(and(eq(jobRuns.jobId, jobId), eq(jobRuns.status, "running")))
         .all();
       return rows.length;
+    },
+    claimRun: ({ jobId, scheduledFor }) => {
+      // FIX BUG #3: do count + insert inside one transaction so two
+      // concurrent executeScheduledJob calls can't both see zero
+      // inflight runs and create duplicate sessions. The IMMEDIATE
+      // transaction acquires a write lock up front so the second
+      // caller blocks until the first commits.
+      sqlite.exec("BEGIN IMMEDIATE");
+      try {
+        const inflight = db
+          .select({ id: jobRuns.id })
+          .from(jobRuns)
+          .where(and(eq(jobRuns.jobId, jobId), eq(jobRuns.status, "running")))
+          .all();
+        if (inflight.length > 0) {
+          sqlite.exec("COMMIT");
+          return { run: null, skipped: true as const, reason: "overlap" as const };
+        }
+        const id = shortId();
+        db.insert(jobRuns)
+          .values({
+            id,
+            jobId,
+            scheduledFor,
+            startedAt: null,
+            finishedAt: null,
+            status: "pending",
+            sessionId: null,
+            error: null,
+          })
+          .run();
+        sqlite.exec("COMMIT");
+        const created = db.select().from(jobRuns).where(eq(jobRuns.id, id)).get();
+        if (!created) throw new Error(`Failed to read back job run ${id}`);
+        return { run: rowToJobRun(created as JobRunRow), skipped: false as const };
+      } catch (err) {
+        try {
+          sqlite.exec("ROLLBACK");
+        } catch {
+          // ROLLBACK on a connection that never acquired the lock
+          // raises its own error; swallow it so the original is
+          // surfaced to the caller.
+        }
+        throw err;
+      }
     },
   };
 }
@@ -617,6 +670,35 @@ async function openNodeDb(path: string): Promise<ScheduledDb> {
       const n = row.n;
       if (typeof n === "bigint") return Number(n);
       return Number(n) || 0;
+    },
+    claimRun: ({ jobId, scheduledFor }) => {
+      // FIX BUG #3: see Bun path above. We use BEGIN IMMEDIATE so the
+      // second concurrent caller blocks on the write lock instead of
+      // racing the count.
+      sqlite.exec("BEGIN IMMEDIATE");
+      try {
+        const row = stmtCountRunning.get(jobId);
+        const n = isRecord(row) ? row.n : 0;
+        const inflight = typeof n === "bigint" ? Number(n) : Number(n) || 0;
+        if (inflight > 0) {
+          sqlite.exec("COMMIT");
+          return { run: null, skipped: true as const, reason: "overlap" as const };
+        }
+        const id = shortId();
+        stmtInsertRun.run(id, jobId, scheduledFor);
+        sqlite.exec("COMMIT");
+        const created = toRun(stmtGetRun.get(id));
+        if (!created) throw new Error(`Failed to read back job run ${id}`);
+        return { run: created, skipped: false as const };
+      } catch (err) {
+        try {
+          sqlite.exec("ROLLBACK");
+        } catch {
+          // See Bun path — swallow ROLLBACK errors so the original
+          // failure surfaces to the caller.
+        }
+        throw err;
+      }
     },
   };
 }

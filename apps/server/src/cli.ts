@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
@@ -68,6 +71,26 @@ if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
 
 const server = await startServer(config);
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const dashboardScript = join(__dirname, "..", "scripts", "dashboard.mjs");
+const dashboardPort = parseInt(process.env.MCP_DASHBOARD_PORT || "26320", 10);
+const dashboardProcess = spawn("node", [dashboardScript], {
+  cwd: join(__dirname, ".."),
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    PORT: String(dashboardPort),
+    OPENWORK_SERVER_URL: serverUrl,
+  },
+});
+dashboardProcess.on("error", (err) => {
+  logger.log("error", `MCP Dashboard failed to start: ${err.message}`);
+});
+dashboardProcess.on("exit", (code) => {
+  logger.log("info", `MCP Dashboard exited (code ${code})`);
+});
+logger.log("info", `MCP Dashboard at http://127.0.0.1:${dashboardPort}/dashboard`);
+
 // The runtime config file above only covers workspaces[0]. Push every
 // workspace's runtime-DB MCPs into the engine so they aren't invisible
 // until a manual reload. Best-effort.
@@ -102,16 +125,32 @@ if (args.verbose) {
   logger.log("info", `Host token source: ${config.hostTokenSource}`);
 }
 
-const shutdown = () => {
-  void managedOpencode?.close();
-  (server as { stop?: (closeActiveConnections?: boolean) => void }).stop?.(true);
+const shutdown = async () => {
+  // FIX BUG #4: graceful shutdown used to call `process.exit(0)`
+  // immediately, which killed in-flight scheduled jobs mid-run and
+  // left `running` rows in `runtime.sqlite` that the next boot had
+  // to sweep with `failStaleRunningRuns`. The user would then see
+  // false-positive "Server restarted while run was in flight"
+  // failures. Now we await the server stop (which drains the
+  // scheduler's 10s in-flight window) before exiting.
+  try {
+    await managedOpencode?.close();
+  } catch (err) {
+    logger.log("warn", `managed OpenCode close failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  dashboardProcess.kill();
+  try {
+    await (server as { stop?: (closeActiveConnections?: boolean) => Promise<void> }).stop?.(true);
+  } catch (err) {
+    logger.log("warn", `server stop failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 };
 
-process.once("SIGINT", () => {
-  shutdown();
+process.once("SIGINT", async () => {
+  await shutdown();
   process.exit(0);
 });
-process.once("SIGTERM", () => {
-  shutdown();
+process.once("SIGTERM", async () => {
+  await shutdown();
   process.exit(0);
 });

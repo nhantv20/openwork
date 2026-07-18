@@ -22,6 +22,9 @@ export interface CliArgs {
   verbose?: boolean;
   logFormat?: LogFormat;
   logRequests?: boolean;
+  /** `--disable-scheduler` → false; `--enable-scheduler` → true.
+   *  Defaults to true so existing deployments keep working. */
+  enableScheduler?: boolean;
   version?: boolean;
   help?: boolean;
 }
@@ -42,6 +45,7 @@ interface FileConfig {
   opencodePassword?: string;
   logFormat?: LogFormat;
   logRequests?: boolean;
+  enableScheduler?: boolean;
 }
 
 const DEFAULT_PORT = 8787;
@@ -49,6 +53,7 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_LOG_FORMAT: LogFormat = "pretty";
 const DEFAULT_LOG_REQUESTS = true;
+const DEFAULT_ENABLE_SCHEDULER = true;
 
 function normalizeLogFormat(value: string | undefined): LogFormat | undefined {
   if (!value) return undefined;
@@ -94,6 +99,14 @@ export function parseCliArgs(argv: string[]): CliArgs {
     }
     if (value === "--no-log-requests") {
       args.logRequests = false;
+      continue;
+    }
+    if (value === "--enable-scheduler") {
+      args.enableScheduler = true;
+      continue;
+    }
+    if (value === "--disable-scheduler") {
+      args.enableScheduler = false;
       continue;
     }
     if (value === "--config") {
@@ -195,6 +208,10 @@ export function printHelp(): void {
     "  --log-format <format>     Log output format: pretty | json",
     "  --log-requests           Log incoming requests (default: true)",
     "  --no-log-requests        Disable request logging",
+    "  --enable-scheduler       Boot in-process scheduler (default: true)",
+    "  --disable-scheduler      Skip scheduler boot — use when a separate",
+    "                         orchestrator-hosted scheduler handles cron",
+    "                         jobs. /api/scheduled/* returns 503.",
     "  --verbose                Print resolved config",
     "  --version                Show version",
   ].join("\n");
@@ -305,6 +322,10 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
   const envLogRequests = parseBoolean(process.env.OPENWORK_LOG_REQUESTS);
   const logRequests = cli.logRequests ?? envLogRequests ?? fileConfig.logRequests ?? DEFAULT_LOG_REQUESTS;
 
+  const envEnableScheduler = parseBoolean(process.env.OPENWORK_ENABLE_SCHEDULER);
+  const enableScheduler =
+    cli.enableScheduler ?? envEnableScheduler ?? fileConfig.enableScheduler ?? DEFAULT_ENABLE_SCHEDULER;
+
   const authorizedRoots =
     fileConfig.authorizedRoots?.length
       ? fileConfig.authorizedRoots.map((root) => resolve(configDir, root))
@@ -333,5 +354,6 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     hostTokenSource,
     logFormat,
     logRequests,
+    enableScheduler,
   };
 }
