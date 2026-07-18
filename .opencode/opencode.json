@@ -24,6 +24,15 @@
         "uvx",
         "officemcp"
       ],
+      "enabled": false
+    },
+    "ms365": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@softeria/ms-365-mcp-server"
+      ],
       "enabled": true
     }
   }
