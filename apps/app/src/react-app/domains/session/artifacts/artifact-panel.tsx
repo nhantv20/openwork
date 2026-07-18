@@ -602,7 +602,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
               ×
             </button>
           </div>
-          <DiffViewer diff={agentDiff.diff} className="max-h-[40vh] overflow-auto px-3 py-2" />
+          <DiffViewer diff={agentDiff.diff} className="max-h-[40vh] overflow-auto px-3 py-2" language={target.value.split(".").pop()} />
         </div>
       ) : null}
       {target.kind === "file" ? (
@@ -711,7 +711,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" && isDiffFile(target.value) ? (
-          <DiffViewer diff={data.data} />
+          <DiffViewer diff={data.data} language={target.value.split(".").pop()} />
         ) : data?.kind === "text" && textTooLarge ? (
           <PreviewError message={`Text file (${formatFileSize(textSize ?? 0)}) is too large to preview inline — use the buttons above to download or open externally.`} />
         ) : data?.kind === "text" ? (

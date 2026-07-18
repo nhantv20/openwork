@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import type * as React from "react";
 import {
+  Archive,
   ArrowLeft,
   Bug,
   CalendarClock,
@@ -82,6 +83,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return Sparkles;
     case "extensions":
       return Puzzle;
+    case "artifacts":
+      return Archive;
     case "environment":
       return Terminal;
     case "advanced":
@@ -123,6 +126,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_skills");
     case "extensions":
       return t("settings.tab_extensions");
+    case "artifacts":
+      return "Artifacts";
     case "environment":
       return t("settings.tab_environment");
     case "advanced":
@@ -166,6 +171,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_skills");
     case "extensions":
       return t("settings.tab_description_extensions");
+    case "artifacts":
+      return "View and manage generated artifacts";
     case "environment":
       return t("settings.tab_description_environment");
     case "advanced":
@@ -186,7 +193,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "scheduled", "extensions", "advanced"];
+  return ["preferences", "permissions", "scheduled", "extensions", "artifacts", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

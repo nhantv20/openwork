@@ -35,15 +35,65 @@ function startServer() {
       ".csv": "text/csv; charset=utf-8",
     }
 
-    server = http.createServer((req: any, res: any) => {
+    server = http.createServer(async (req: any, res: any) => {
+      const corsHeaders = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      }
+
+      // Handle CORS preflight
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, corsHeaders)
+        res.end()
+        return
+      }
+
       const root = nodePath.join(process.cwd(), ARTIFACTS_DIR)
       let urlPath = req.url?.split("?")[0] || "/"
       urlPath = decodeURIComponent(urlPath)
 
+      // ── DELETE endpoint ───────────────────────────────────────────────
+      // URL: DELETE /<name>.html  → xoá file + meta
+      if (req.method === "DELETE") {
+        const target = urlPath.replace(/^\/+/, "")
+        if (!target) {
+          res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders })
+          res.end(JSON.stringify({ ok: false, error: "Missing artifact name" }))
+          return
+        }
+        // Chỉ chấp nhận tên an toàn: kebab-case + .html
+        const safeName = target.replace(/[^a-zA-Z0-9.-]/g, "-")
+        if (!safeName.endsWith(".html")) {
+          res.writeHead(400, { "Content-Type": "application/json", ...corsHeaders })
+          res.end(JSON.stringify({ ok: false, error: "Only .html artifacts can be deleted via HTTP" }))
+          return
+        }
+        const filePath = nodePath.join(root, safeName)
+        if (!filePath.startsWith(root)) {
+          res.writeHead(403, { "Content-Type": "application/json", ...corsHeaders })
+          res.end(JSON.stringify({ ok: false, error: "Forbidden" }))
+          return
+        }
+        const baseName = safeName.replace(/\.html$/, "")
+        const metaPath = nodePath.join(root, `${baseName}.meta.json`)
+        const deleted: string[] = []
+        try { await fs.promises.unlink(filePath); deleted.push(safeName) } catch {}
+        try { await fs.promises.unlink(metaPath); deleted.push(`${baseName}.meta.json`) } catch {}
+        if (deleted.length === 0) {
+          res.writeHead(404, { "Content-Type": "application/json", ...corsHeaders })
+          res.end(JSON.stringify({ ok: false, error: "Artifact not found", name: safeName }))
+          return
+        }
+        res.writeHead(200, { "Content-Type": "application/json", ...corsHeaders })
+        res.end(JSON.stringify({ ok: true, deleted, name: safeName }))
+        return
+      }
+
       if (urlPath === "/") {
         fs.readdir(root, { withFileTypes: true }, (err: any, entries: any[]) => {
           if (err) {
-            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...corsHeaders })
             res.end("<html><body><h1>Artifacts Server</h1><p>No artifacts yet.</p></body></html>")
             return
           }
@@ -51,7 +101,7 @@ function startServer() {
           const links = files.map(f =>
             `<li><a href="/${encodeURIComponent(f)}">${f}</a></li>`
           ).join("\n")
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...corsHeaders })
           res.end(`<html><body><h1>📦 Artifacts</h1><ul>${links}</ul></body></html>`)
         })
         return
@@ -59,7 +109,7 @@ function startServer() {
 
       const safePath = nodePath.resolve(root, "." + urlPath)
       if (!safePath.startsWith(root)) {
-        res.writeHead(403)
+        res.writeHead(403, { ...corsHeaders })
         res.end("Forbidden")
         return
       }
@@ -69,11 +119,11 @@ function startServer() {
 
       fs.readFile(safePath, (err: any, data: Buffer) => {
         if (err) {
-          res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" })
+          res.writeHead(404, { "Content-Type": "text/html; charset=utf-8", ...corsHeaders })
           res.end(`<html><body><h1>404</h1><p>Artifact not found</p></body></html>`)
           return
         }
-        res.writeHead(200, { "Content-Type": contentType })
+        res.writeHead(200, { "Content-Type": contentType, "Access-Control-Allow-Origin": "*" })
         res.end(data)
       })
     })
