@@ -193,7 +193,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "scheduled", "extensions", "artifacts", "advanced"];
+  return ["preferences", "permissions", "skills", "scheduled", "extensions", "artifacts", "advanced"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {

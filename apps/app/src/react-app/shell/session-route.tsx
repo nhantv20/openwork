@@ -1859,9 +1859,7 @@ export function SessionRoute() {
         onOpenCreateWorkspace: handleOpenCreateWorkspace,
         onOpenSessionSearch: () => setSessionSearchOpen(true),
         onOpenSkills: () => {
-          toast(t("workspace_list.quick_actions_skills_coming_soon"), {
-            description: t("workspace_list.quick_actions_coming_soon_hint"),
-          });
+          handleOpenSettings("/settings/skills");
         },
         onOpenScheduled: () => {
           if (!sidebarActiveWorkspaceId) {

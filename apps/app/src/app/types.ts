@@ -280,12 +280,25 @@ export type WorkspaceOpenworkConfig = {
   } | null;
 };
 
+export type SkillScope = "project" | "global";
+
 export type SkillCard = {
   name: string;
   path: string;
   description?: string;
   trigger?: string;
   category?: string;
+  /**
+   * Where the skill lives on disk.
+   * - `project` → workspace-scoped (`.opencode/skills`, `.claude/skills`)
+   * - `global` → user-scoped (`~/.agents/skills`, `~/.config/opencode/skills`, ...)
+   *
+   * Global skills are read-only in the UI: the OpenWork server has no
+   * create/update/delete endpoint for them. The field is optional for
+   * backwards compatibility with older clients; fall back to `project`
+   * when missing.
+   */
+  scope?: SkillScope;
 };
 
 export type HubSkillRepo = {

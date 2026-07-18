@@ -245,6 +245,12 @@ export type LocalSkillCard = {
   path: string;
   description?: string;
   trigger?: string;
+  /**
+   * Where the skill lives on disk.
+   * - `project` → workspace-scoped (`.opencode/skills`, `.claude/skills`)
+   * - `global` → user-scoped (`~/.agents/skills`, `~/.config/opencode/skills`, ...)
+   */
+  scope?: "project" | "global";
 };
 
 export type LocalSkillContent = {

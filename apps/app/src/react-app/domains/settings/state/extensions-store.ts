@@ -1875,6 +1875,7 @@ export function createExtensionsStore(options: {
               path: entry.path,
               trigger: entry.trigger,
               category: entry.category,
+              scope: entry.scope === "global" ? "global" : "project",
             }))
           : [];
         mutateState((current) => ({
@@ -1924,6 +1925,7 @@ export function createExtensionsStore(options: {
               description: entry.description,
               path: entry.path,
               trigger: entry.trigger,
+              scope: entry.scope === "global" ? "global" : "project",
             }))
           : [];
         mutateState((current) => ({

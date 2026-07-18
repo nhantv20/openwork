@@ -786,8 +786,18 @@ async function collectGlobalSkillRoots() {
 }
 
 async function collectSkillRoots(projectDir) {
-  const roots = [...(await collectProjectSkillRoots(projectDir)), ...(await collectGlobalSkillRoots())];
-  return roots.filter((value, index) => roots.indexOf(value) === index);
+  const projectRoots = await collectProjectSkillRoots(projectDir);
+  const globalRoots = await collectGlobalSkillRoots();
+  const all = [...projectRoots, ...globalRoots];
+  const unique = [];
+  for (const value of all) {
+    if (!unique.includes(value)) unique.push(value);
+  }
+  return {
+    roots: unique,
+    projectRoots,
+    globalRoots,
+  };
 }
 
 async function findSkillDirsInRoot(root) {
@@ -857,11 +867,15 @@ async function listLocalSkills(projectDir) {
 
   const seen = new Set();
   const out = [];
-  for (const root of await collectSkillRoots(projectDir)) {
+  const { roots, globalRoots } = await collectSkillRoots(projectDir);
+  const globalRootSet = new Set(globalRoots);
+  for (const root of roots) {
+    const scope = globalRootSet.has(root) ? "global" : "project";
     for (const skillDir of await findSkillDirsInRoot(root)) {
       const name = path.basename(skillDir);
-      if (seen.has(name)) continue;
-      seen.add(name);
+      const dedupeKey = `${scope}:${name}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
       let raw = "";
       try {
         raw = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
@@ -873,6 +887,7 @@ async function listLocalSkills(projectDir) {
         path: skillDir,
         description: extractDescription(raw) ?? undefined,
         trigger: extractTrigger(raw) ?? undefined,
+        scope,
       });
     }
   }
@@ -881,7 +896,8 @@ async function listLocalSkills(projectDir) {
 
 async function findSkillFile(projectDir, name) {
   const safeName = validateSkillName(name);
-  for (const root of await collectSkillRoots(projectDir)) {
+  const { roots } = await collectSkillRoots(projectDir);
+  for (const root of roots) {
     const direct = path.join(root, safeName, "SKILL.md");
     if (await pathExists(direct)) return direct;
 
@@ -1209,20 +1225,50 @@ const desktopCommandHandlers = {
   },
   "writeLocalSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
-      const skillPath = await findSkillFile(projectDir, args[1]);
+      const safeName = validateSkillName(String(args[1] ?? ""));
+      const projectRoots = await collectProjectSkillRoots(projectDir);
+      let skillPath = null;
+      for (const root of projectRoots) {
+        const direct = path.join(root, safeName, "SKILL.md");
+        if (await pathExists(direct)) {
+          skillPath = direct;
+          break;
+        }
+        const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const nested = path.join(root, entry.name, safeName, "SKILL.md");
+          if (await pathExists(nested)) {
+            skillPath = nested;
+            break;
+          }
+        }
+        if (skillPath) break;
+      }
       if (!skillPath) {
-        return execResult(false, "", "Skill not found");
+        // Brand-new skill: drop it into the modern `.opencode/skills` root.
+        const baseDir = await ensureProjectSkillRoot(projectDir);
+        const skillDir = path.join(baseDir, safeName);
+        await mkdir(skillDir, { recursive: true });
+        skillPath = path.join(skillDir, "SKILL.md");
       }
       const content = String(args[2] ?? "");
       const next = content.endsWith("\n") ? content : `${content}\n`;
       await writeFile(skillPath, next, "utf8");
-      return execResult(true, `Saved skill ${path.basename(path.dirname(skillPath))}`);
+      return execResult(true, `Saved skill ${safeName}`);
   },
   "uninstallSkill": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const skillPath = await findSkillFile(projectDir, args[1]);
       if (!skillPath) {
         return execResult(false, "", "Skill not found in .opencode/skills or .claude/skills");
+      }
+      const { globalRoots } = await collectSkillRoots(projectDir);
+      for (const root of globalRoots) {
+        if (skillPath === path.join(root, path.basename(path.dirname(skillPath)), "SKILL.md") ||
+            skillPath.startsWith(`${root}${path.sep}`)) {
+          return execResult(false, "", "Global skills are read-only in the UI");
+        }
       }
       await rm(path.dirname(skillPath), { recursive: true, force: true });
       return execResult(true, `Removed skill ${args[1]}`);

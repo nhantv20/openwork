@@ -76,16 +76,17 @@ describe("QuickActionsGroup", () => {
     expect(newTaskButtonOpen).toMatch(/\stitle=/);
   });
 
-  test("shows a 'Soon' badge on Skills / Connect Mobile (Scheduled is now wired)", () => {
+  test("shows a 'Soon' badge only on Connect Mobile (Skills and Scheduled are now wired)", () => {
     const html = renderGroup();
     // Count via data-testid rather than literal text — locale-independent.
     // Scheduled lands in M2 — its Quick Action shortcut now navigates to
-    // Settings → Scheduled, so the "Soon" badge is removed. Skills + Connect
-    // Mobile are still placeholders.
+    // Settings → Scheduled, so the "Soon" badge is removed.
+    // Skills lands in M2 — it now navigates to Settings → Skills, so the
+    // "Soon" badge is removed there too. Only Connect Mobile remains.
     const badgeCount = (
       html.match(/data-testid="quick-action-coming-soon"/g) ?? []
     ).length;
-    expect(badgeCount).toBe(2);
+    expect(badgeCount).toBe(1);
   });
 
   test("omits M2 buttons individually when their callback is missing", () => {

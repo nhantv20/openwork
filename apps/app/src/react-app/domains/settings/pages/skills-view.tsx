@@ -10,6 +10,7 @@ import {
 import {
   Cloud,
   Edit2,
+  FilePlus2,
   FolderOpen,
   Loader2,
   Package,
@@ -50,19 +51,21 @@ import {
   modalNoticeSuccessClass,
   pillGhostClass,
   pillPrimaryClass,
-  pillSecondaryClass,
   surfaceCardClass,
   tagClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { cn } from "@/lib/utils";
 import {
   SelectMenu,
   type SelectMenuOption,
 } from "@/react-app/design-system/select-menu";
+import { SkillDetailPanel } from "@/react-app/domains/settings/panels/skill-detail-panel";
+import { NewSkillDialog } from "@/react-app/domains/settings/modals/new-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
-type SkillsFilter = "all" | "installed" | "cloud" | "hub";
+type SkillsFilter = "all" | "workspace" | "global" | "cloud" | "hub";
 type CloudSkillInstallState = "available" | "installed" | "update" | "missing_local";
 
 const pageTitleClass = "text-[28px] font-semibold tracking-[-0.5px] text-dls-text";
@@ -132,6 +135,7 @@ type SkillsViewLocalState = {
   uninstallTarget: SkillCard | null;
   searchQuery: string;
   activeFilter: SkillsFilter;
+  newSkillDialogOpen: boolean;
   customRepoOpen: boolean;
   customRepoOwner: string;
   customRepoName: string;
@@ -164,6 +168,7 @@ const initialSkillsViewLocalState: SkillsViewLocalState = {
   uninstallTarget: null,
   searchQuery: "",
   activeFilter: "all",
+  newSkillDialogOpen: false,
   customRepoOpen: false,
   customRepoOwner: "",
   customRepoName: "",
@@ -238,6 +243,7 @@ export function SkillsView(props: SkillsViewProps) {
     uninstallTarget,
     searchQuery,
     activeFilter,
+    newSkillDialogOpen,
     customRepoOpen,
     customRepoOwner,
     customRepoName,
@@ -266,6 +272,7 @@ export function SkillsView(props: SkillsViewProps) {
   const setUninstallTarget = (value: SetStateAction<SkillCard | null>) => setLocal("uninstallTarget", value);
   const setSearchQuery = (value: SetStateAction<string>) => setLocal("searchQuery", value);
   const setActiveFilter = (value: SetStateAction<SkillsFilter>) => setLocal("activeFilter", value);
+  const setNewSkillDialogOpen = (value: SetStateAction<boolean>) => setLocal("newSkillDialogOpen", value);
   const setCustomRepoOpen = (value: SetStateAction<boolean>) => setLocal("customRepoOpen", value);
   const setCustomRepoOwner = (value: SetStateAction<string>) => setLocal("customRepoOwner", value);
   const setCustomRepoName = (value: SetStateAction<string>) => setLocal("customRepoName", value);
@@ -349,12 +356,18 @@ export function SkillsView(props: SkillsViewProps) {
 
   const filteredSkills = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return skills;
+    const scopeMatch = (skill: SkillCard) => {
+      if (activeFilter === "workspace") return skill.scope !== "global";
+      if (activeFilter === "global") return skill.scope === "global";
+      return true;
+    };
     return skills.filter((skill) => {
+      if (!scopeMatch(skill)) return false;
+      if (!query) return true;
       const description = skill.description ?? "";
       return skill.name.toLowerCase().includes(query) || description.toLowerCase().includes(query);
     });
-  }, [searchQuery, skills]);
+  }, [searchQuery, skills, activeFilter]);
 
   const installedNames = useMemo(() => new Set(skills.map((skill) => skill.name)), [skills]);
 
@@ -441,7 +454,7 @@ export function SkillsView(props: SkillsViewProps) {
     [hubRepos],
   );
 
-  const showInstalledSection = activeFilter === "all" || activeFilter === "installed";
+  const showInstalledSection = activeFilter === "all" || activeFilter === "workspace" || activeFilter === "global";
   const showCloudSection = activeFilter === "all" || activeFilter === "cloud";
   const showHubSection = activeFilter === "all" || activeFilter === "hub";
   const canCreateInChat = !props.busy && (props.canInstallSkillCreator || props.canUseDesktopTools);
@@ -612,23 +625,6 @@ export function SkillsView(props: SkillsViewProps) {
     [extensions, maskError, props.busy],
   );
 
-  const saveSelectedSkill = useCallback(async () => {
-    if (!selectedSkill || !selectedDirty) return;
-    setSelectedError(null);
-    try {
-      await Promise.resolve(
-        extensions.saveSkill({
-          name: selectedSkill.name,
-          content: selectedContent,
-          description: selectedSkill.description,
-        }),
-      );
-      setSelectedDirty(false);
-    } catch (error) {
-      setSelectedError(maskError(error));
-    }
-  }, [extensions, maskError, selectedContent, selectedDirty, selectedSkill]);
-
   const selectHubRepo = useCallback(
     (repo: HubSkillRepo) => {
       void Promise.resolve(extensions.setHubRepo(repo)).then(() => {
@@ -693,29 +689,56 @@ export function SkillsView(props: SkillsViewProps) {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3 lg:justify-end">
-            <button
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
               onClick={() => runDesktopAction(extensions.importLocalSkill)}
               disabled={props.busy || !props.canUseDesktopTools}
-              className={pillSecondaryClass}
+              data-testid="skills-import-button"
             >
-              <Upload size={14} />
+              <Upload className="size-3.5" />
               {t("skills.import_local_skill")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
               onClick={() => runDesktopAction(extensions.revealSkillsFolder)}
               disabled={props.busy || !props.canUseDesktopTools}
-              className={pillSecondaryClass}
+              data-testid="skills-reveal-folder-button"
             >
-              <FolderOpen size={14} />
+              <FolderOpen className="size-3.5" />
               {t("skills.reveal_folder")}
-            </button>
-            <button type="button" onClick={() => void handleNewSkill()} disabled={!canCreateInChat} className={pillPrimaryClass}>
-              <Sparkles size={14} />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setNewSkillDialogOpen(true)}
+              disabled={props.busy || !props.canInstallSkillCreator}
+              data-testid="skills-new-button"
+              title={t("skills.new_button_hint")}
+            >
+              <FilePlus2 className="size-3.5" />
+              {t("skills.new_button_label")}
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void handleNewSkill()}
+              disabled={!canCreateInChat}
+              data-testid="skills-create-in-chat-button"
+            >
+              <Sparkles className="size-3.5" />
               {t("skills.create_in_chat")}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -732,7 +755,7 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {(["all", "installed", "cloud", "hub"] as SkillsFilter[]).map((filter) => (
+            {(["all", "workspace", "global", "cloud", "hub"] as SkillsFilter[]).map((filter) => (
               <button
                 key={filter}
                 type="button"
@@ -741,17 +764,27 @@ export function SkillsView(props: SkillsViewProps) {
               >
                 {filter === "all"
                   ? t("skills.filter_all")
-                  : filter === "installed"
-                    ? t("skills.filter_installed")
-                    : filter === "cloud"
-                      ? t("skills.filter_cloud")
-                      : t("skills.filter_hub")}
+                  : filter === "workspace"
+                    ? t("skills.filter_workspace")
+                    : filter === "global"
+                      ? t("skills.filter_global")
+                      : filter === "cloud"
+                        ? t("skills.filter_cloud")
+                        : t("skills.filter_hub")}
               </button>
             ))}
-            <button type="button" onClick={refreshCatalogs} disabled={props.busy} className={pillSecondaryClass}>
-              <RefreshCw size={14} />
-              {t("common.refresh")}
-            </button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8"
+              onClick={refreshCatalogs}
+              disabled={props.busy}
+              aria-label={t("common.refresh")}
+              data-testid="skills-refresh-button"
+            >
+              <RefreshCw className={cn("size-4", props.busy && "animate-spin")} />
+            </Button>
           </div>
         </div>
       </div>
@@ -790,83 +823,104 @@ export function SkillsView(props: SkillsViewProps) {
           ) : (
             <div className="rounded-[24px] bg-dls-hover p-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {filteredSkills.map((skill) => (
-                  <div
-                    key={skill.path}
-                    role="button"
-                    tabIndex={0}
-                    className={`${panelCardClass} flex cursor-pointer flex-col gap-4 text-left`}
-                    onClick={() => void openSkill(skill)}
-                    onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
-                  >
-                    <div className="flex min-w-0 gap-4">
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover">
-                        <Package size={20} className="text-dls-secondary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="truncate text-[14px] font-semibold text-dls-text">{skill.name}</h4>
-                          {isOpenworkInjectedSkill(skill) ? <span className={tagClass}>OpenWork</span> : null}
+                {filteredSkills.map((skill) => {
+                  const isGlobal = skill.scope === "global";
+                  return (
+                    <div
+                      key={skill.path}
+                      role="button"
+                      tabIndex={0}
+                      className={`${panelCardClass} flex cursor-pointer flex-col gap-4 text-left`}
+                      onClick={() => void openSkill(skill)}
+                      onKeyDown={(event) => handleSkillCardKeyDown(event, skill)}
+                    >
+                      <div className="flex min-w-0 gap-4">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-dls-border bg-dls-hover">
+                          <Package size={20} className="text-dls-secondary" />
                         </div>
-                        <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
-                          {skill.description || t("skills.no_description")}
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="truncate text-[14px] font-semibold text-dls-text">{skill.name}</h4>
+                            {isOpenworkInjectedSkill(skill) ? <span className={tagClass}>OpenWork</span> : null}
+                            <span className={tagClass} title={t("skills.detail_meta_scope")}>
+                              {t(`skills.scope_${isGlobal ? "global" : "workspace"}`)}
+                            </span>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">
+                            {skill.description || t("skills.no_description")}
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dls-border pt-4">
-                      <span className={tagClass}>{t("skills.installed_status")}</span>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className={pillGhostClass}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openShareLink(skill);
-                          }}
-                          disabled={props.busy}
-                          title={t("skills.share_option_team_title")}
-                        >
-                          <Users size={14} />
-                          {t("skills.share_option_team_title")}
-                        </button>
-                        <button
-                          type="button"
-                          className={pillSecondaryClass}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void openSkill(skill);
-                          }}
-                          disabled={props.busy}
-                          title={t("common.edit")}
-                        >
-                          <Edit2 size={14} />
-                          {t("common.edit")}
-                        </button>
-                        <button
-                          type="button"
-                          className={pillGhostClass}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            if (props.busy || !props.canUseDesktopTools) {
-                              if (!props.canUseDesktopTools) toast.warning(t("skills.desktop_required"));
-                              return;
-                            }
-                            setUninstallTarget(skill);
-                          }}
-                          disabled={props.busy || !props.canUseDesktopTools}
-                          title={t("skills.uninstall")}
-                        >
-                          <Trash2 size={14} />
-                          {t("common.remove")}
-                        </button>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-dls-border pt-4">
+                        <span className={tagClass}>
+                          {isGlobal ? t("skills.global_label") : t("skills.installed_status")}
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openShareLink(skill);
+                            }}
+                            disabled={props.busy || isGlobal}
+                            title={isGlobal ? t("skills.detail_readonly_hint") : t("skills.share_option_team_title")}
+                            data-testid={`skill-card-share-${skill.name}`}
+                          >
+                            <Users className="size-3.5" />
+                            {t("skills.share_option_team_title")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void openSkill(skill);
+                            }}
+                            disabled={props.busy}
+                            title={isGlobal ? t("skills.detail_view_only") : t("common.edit")}
+                            data-testid={`skill-card-edit-${skill.name}`}
+                          >
+                            <Edit2 className="size-3.5" />
+                            {isGlobal ? t("common.view") : t("common.edit")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (props.busy || !props.canUseDesktopTools) {
+                                if (!props.canUseDesktopTools) toast.warning(t("skills.desktop_required"));
+                                return;
+                              }
+                              if (isGlobal) {
+                                toast.warning(t("skills.detail_readonly_hint"));
+                                return;
+                              }
+                              setUninstallTarget(skill);
+                            }}
+                            disabled={props.busy || !props.canUseDesktopTools || isGlobal}
+                            title={isGlobal ? t("skills.detail_readonly_hint") : t("skills.uninstall")}
+                            data-testid={`skill-card-remove-${skill.name}`}
+                          >
+                            <Trash2 className="size-3.5" />
+                            {t("common.remove")}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -884,15 +938,18 @@ export function SkillsView(props: SkillsViewProps) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
                 onClick={() => void extensions.refreshCloudOrgSkills({ force: true })}
                 disabled={props.busy}
-                className={pillSecondaryClass}
+                aria-label={t("skills.cloud_refresh")}
+                data-testid="skills-cloud-refresh-button"
               >
-                <RefreshCw size={14} />
-                {t("skills.cloud_refresh")}
-              </button>
+                <RefreshCw className={cn("size-4", props.busy && "animate-spin")} />
+              </Button>
             </div>
           </div>
 
@@ -901,9 +958,16 @@ export function SkillsView(props: SkillsViewProps) {
               {cloudNeedsSignIn ? (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p>{t("skills.cloud_sign_in_hint")}</p>
-                  <button type="button" className={pillPrimaryClass} onClick={openCloudSignIn}>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={openCloudSignIn}
+                    data-testid="skills-cloud-sign-in-button"
+                  >
                     {t("skills.cloud_sign_in")}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -954,17 +1018,20 @@ export function SkillsView(props: SkillsViewProps) {
 
                           <div className="flex items-center justify-between gap-3 border-t border-dls-border pt-4">
                             <span className={tagClass}>{t("skills.cloud_footer_label")}</span>
-                            <button
+                            <Button
                               type="button"
-                              className={installingCloudSkillId === skill.id || state === "installed" ? pillSecondaryClass : pillPrimaryClass}
+                              variant={state === "installed" || installingCloudSkillId === skill.id ? "outline" : "default"}
+                              size="sm"
+                              className="shrink-0"
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
                                 void installFromCloud(skill);
                               }}
                               disabled={props.busy || installingCloudSkillId === skill.id || state === "installed"}
+                              data-testid={`skill-cloud-install-${skill.id}`}
                             >
-                              {installingCloudSkillId === skill.id ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                              {installingCloudSkillId === skill.id ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
                               {installingCloudSkillId === skill.id
                                 ? t("skills.cloud_installing_short")
                                 : state === "update"
@@ -972,7 +1039,7 @@ export function SkillsView(props: SkillsViewProps) {
                                   : state === "installed"
                                     ? t("skills.cloud_status_installed")
                                     : t("skills.install")}
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       );
@@ -993,32 +1060,46 @@ export function SkillsView(props: SkillsViewProps) {
               <p className="mt-1 text-[13px] text-dls-secondary">{t("skills.hub_desc")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
                 onClick={() => {
                   void Promise.resolve(extensions.addHubRepo({ owner: "different-ai", repo: "openwork-hub", ref: "main" })).then(() => {
                     void extensions.refreshHubSkills({ force: true });
                   });
                 }}
-                className={pillGhostClass}
                 disabled={props.busy || hasDefaultHubRepo}
+                data-testid="skills-add-openwork-hub-button"
               >
-                <Plus size={14} />
+                <Plus className="size-3.5" />
                 {t("skills.add_openwork_hub")}
-              </button>
-              <button type="button" onClick={openCustomRepoModal} disabled={props.busy} className={pillSecondaryClass}>
-                <Plus size={14} />
-                {t("skills.add_git_repo")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={openCustomRepoModal}
+                disabled={props.busy}
+                data-testid="skills-add-git-repo-button"
+              >
+                <Plus className="size-3.5" />
+                {t("skills.add_git_repo")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
                 onClick={() => void extensions.refreshHubSkills({ force: true })}
                 disabled={props.busy}
-                className={pillSecondaryClass}
+                aria-label={t("skills.refresh_hub")}
+                data-testid="skills-hub-refresh-button"
               >
-                <RefreshCw size={14} />
-                {t("skills.refresh_hub")}
-              </button>
+                <RefreshCw className={cn("size-4", props.busy && "animate-spin")} />
+              </Button>
             </div>
           </div>
 
@@ -1098,9 +1179,11 @@ export function SkillsView(props: SkillsViewProps) {
 
                     <div className="flex items-center justify-between gap-3 border-t border-dls-border pt-4">
                       <span className={tagClass}>{t("skills.hub_label")}</span>
-                      <button
+                      <Button
                         type="button"
-                        className={installingHubSkill === skill.name ? pillSecondaryClass : pillPrimaryClass}
+                        variant={installingHubSkill === skill.name ? "outline" : "default"}
+                        size="sm"
+                        className="shrink-0"
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -1108,10 +1191,11 @@ export function SkillsView(props: SkillsViewProps) {
                         }}
                         disabled={props.busy || installingHubSkill === skill.name}
                         title={t("skills.install_name_title", undefined, { name: skill.name })}
+                        data-testid={`skill-hub-install-${skill.name}`}
                       >
-                        {installingHubSkill === skill.name ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                        {installingHubSkill === skill.name ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
                         {installingHubSkill === skill.name ? t("skills.installing") : t("common.add")}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1121,57 +1205,69 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      <Dialog
-        open={Boolean(selectedSkill)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedSkill(null);
-            setSelectedContent("");
-            setSelectedDirty(false);
-            setSelectedError(null);
-            setSelectedLoading(false);
+<SkillDetailPanel
+        skill={selectedSkill}
+        onClose={() => {
+          setSelectedSkill(null);
+          setSelectedContent("");
+          setSelectedDirty(false);
+          setSelectedError(null);
+          setSelectedLoading(false);
+        }}
+        busy={props.busy}
+        readSkill={async (name) => {
+          try {
+            return await extensions.readSkill(name);
+          } catch (error) {
+            setSelectedError(error instanceof Error ? error.message : t("common.something_went_wrong"));
+            return null;
           }
         }}
-      >
-        <DialogContent className="flex max-h-[90vh] min-h-0 w-full max-w-4xl flex-col overflow-hidden sm:max-w-4xl">
-            <DialogHeader>
-              <div className="flex min-w-0 items-center gap-3">
-                <DialogTitle className="min-w-0 flex-1 truncate">{selectedSkill?.name}</DialogTitle>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    disabled={!selectedDirty || props.busy}
-                    onClick={() => void saveSelectedSkill()}
-                  >
-                    {t("common.save")}
-                  </Button>
-                </div>
-              </div>
-            </DialogHeader>
+        saveSkill={async (input) => {
+          setSelectedError(null);
+          await Promise.resolve(
+            extensions.saveSkill({
+              name: input.name,
+              content: input.content,
+              description: input.description,
+            }),
+          );
+          setSelectedContent(input.content);
+          setSelectedDirty(false);
+          await Promise.resolve(extensions.refreshSkills({ force: true }));
+        }}
+      />
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {selectedError ? <div className="mb-3 rounded-xl border border-red-7/20 bg-red-1/40 px-4 py-3 text-xs text-red-12">{selectedError}</div> : null}
-              {selectedLoading ? (
-                <div className="text-xs text-dls-secondary">{t("skills.loading")}</div>
-              ) : (
-                <textarea
-                  value={selectedContent}
-                  onChange={(event) => {
-                    setSelectedContent(event.currentTarget.value);
-                    setSelectedDirty(true);
-                  }}
-                  className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
-                  spellCheck={false}
-                />
-              )}
-            </div>
-        </DialogContent>
-      </Dialog>
+      <NewSkillDialog
+        open={newSkillDialogOpen}
+        onOpenChange={setNewSkillDialogOpen}
+        existingNames={skills.map((skill) => skill.name)}
+        reservedNames={Array.from(OPENWORK_DEFAULT_SKILL_NAMES)}
+        onCreate={async (input) => {
+          await Promise.resolve(
+            extensions.saveSkill({
+              name: input.name,
+              content: input.content,
+              description: input.description,
+            }),
+          );
+          await Promise.resolve(extensions.refreshSkills({ force: true }));
+        }}
+      />
 
       <ConfirmModal
         open={Boolean(uninstallTarget)}
         title={t("skills.uninstall_title")}
-        message={t("skills.uninstall_warning").replace("{name}", uninstallTarget?.name ?? "")}
+        message={
+          <div className="space-y-2">
+            <p>{t("skills.uninstall_warning").replace("{name}", uninstallTarget?.name ?? "")}</p>
+            {uninstallTarget?.path ? (
+              <code className="block break-all rounded-md bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">
+                {uninstallTarget.path}
+              </code>
+            ) : null}
+          </div>
+        }
         confirmLabel={t("skills.uninstall")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"
@@ -1227,8 +1323,10 @@ export function SkillsView(props: SkillsViewProps) {
                     />
                   </div>
                 ) : null}
-                <button
+                <Button
                   type="button"
+                  variant="default"
+                  size="sm"
                   onClick={() => {
                     if (!shareCloudSignedIn) {
                       startShareSkillSignIn();
@@ -1237,14 +1335,14 @@ export function SkillsView(props: SkillsViewProps) {
                     void publishSkillToTeam();
                   }}
                   disabled={shareCloudSignedIn ? Boolean(shareTeamDisabledReason) || shareTeamBusy || Boolean(shareTeamSuccess?.trim()) : false}
-                  className={`${pillPrimaryClass} mt-4 w-full`}
+                  className="mt-4 w-full"
                 >
                   {!shareCloudSignedIn
                     ? t("skills.share_team_sign_in")
                     : shareTeamBusy
                       ? t("skills.share_team_uploading")
                       : t("skills.share_team_upload_and_save")}
-                </button>
+                </Button>
                 {!shareCloudSignedIn ? <p className="mt-3 text-[12px] text-dls-secondary">{t("skills.share_team_sign_in_hint")}</p> : null}
               </div>
             </div>
