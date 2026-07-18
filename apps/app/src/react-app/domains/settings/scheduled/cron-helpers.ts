@@ -27,7 +27,25 @@ export const CRON_CHIPS: CronChip[] = [
   { id: "weekdays-9am", label: "Weekdays 9am", expression: "0 9 * * 1-5" },
 ];
 
-export const DEFAULT_TIMEZONE = "Asia/Tokyo";
+/**
+ * Default timezone for new scheduled tasks.
+ *
+ * Resolved at module-load time via `Intl.DateTimeFormat().resolvedOptions().timeZone`
+ * so the user sees their own local timezone instead of an arbitrary one.
+ * Falls back to `Asia/Tokyo` when Intl returns an empty value (older browsers
+ * or sandboxed environments) — matches the historical default so existing
+ * users see no change.
+ */
+const resolvedTimezone = (() => {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+    return tz && tz.length > 0 ? tz : "Asia/Tokyo";
+  } catch {
+    return "Asia/Tokyo";
+  }
+})();
+
+export const DEFAULT_TIMEZONE = resolvedTimezone;
 
 export type CronValidation =
   | { ok: true; nextRuns: Date[] }

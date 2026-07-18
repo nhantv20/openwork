@@ -1877,6 +1877,12 @@ export function SessionRoute() {
             description: t("workspace_list.quick_actions_coming_soon_hint"),
           });
         },
+        onOpenMcpDashboard: () => {
+          handleOpenSettings("/settings/mcp-dashboard");
+        },
+        onOpenArtifactsDashboard: () => {
+          handleOpenSettings("/settings/artifacts");
+        },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
       surface={surfaceProps}

@@ -1194,9 +1194,10 @@ export type OpenworkScheduledJobUpdate = Partial<{
 }>;
 
 /** OpenCode built-in agents surfaced in the create/edit dialog. The
- *  server-side allowlist is authoritative; this list just drives the UI
- *  select. New agents must be added here AND in
- *  `apps/server/src/routes/scheduled.ts` `KNOWN_AGENTS`. */
+ *  server-side validator accepts any `^[a-z0-9_-]+$` agent name (so
+ *  custom agents from `~/.config/opencode/agent/*.md` work) — this
+ *  list is just the dropdown options for the UI. Edit here when
+ *  OpenCode ships new built-in agents. */
 export const OPENWORK_SCHEDULED_AGENTS = ["build", "plan"] as const;
 export type OpenworkScheduledAgent = (typeof OPENWORK_SCHEDULED_AGENTS)[number];
 
@@ -1330,6 +1331,19 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken, timeoutMs: timeouts.scheduledList },
       );
     },
+    /**
+     * Health probe that returns whether the in-process scheduler
+     * singleton is registered. Returns `schedulerRunning: false` when
+     * the server was started with `--disable-scheduler` (the desktop
+     * uses this so the standalone orchestrator-hosted scheduler can
+     * take over).
+     */
+    getScheduledHealth: () =>
+      requestJson<{ schedulerRunning: boolean; inflight: boolean }>(
+        baseUrl,
+        "/api/scheduled/health",
+        { token, hostToken, timeoutMs: 4_000 },
+      ),
     listScheduledModels: (workspaceId: string) =>
       requestJson<{
         models: OpenworkScheduledModelOption[];
@@ -2228,6 +2242,18 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     // `code` field on 4xx responses (not_git_repo | file_untracked |
     // invalid_ref | ref_not_found | invalid_ref_pair) so the UI can
     // pick an empty state without parsing the human message.
+    getRepoGitStatus: (workspaceId: string) =>
+      requestJson<{
+        isGitRepo: boolean;
+        branch: string | null;
+        staged: string[];
+        modified: string[];
+        untracked: string[];
+      }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/git/repo-status`,
+        { token, hostToken },
+      ),
     getGitStatus: (workspaceId: string, path: string) =>
       requestJson<{
         isGitRepo: boolean;

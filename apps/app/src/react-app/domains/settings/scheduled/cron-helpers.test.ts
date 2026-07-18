@@ -59,8 +59,17 @@ describe("validateCron", () => {
 });
 
 describe("DEFAULT_TIMEZONE", () => {
-  test("is Asia/Tokyo per plan §4.1 #6", () => {
-    expect(DEFAULT_TIMEZONE).toBe("Asia/Tokyo");
+  test("is resolved from the system locale (UTC in CI, user TZ in the app)", () => {
+    // `DEFAULT_TIMEZONE` is computed at module-load via
+    // `Intl.DateTimeFormat().resolvedOptions().timeZone`. In CI (no
+    // user locale) it falls back to "Asia/Tokyo"; in a real app it
+    // picks the user's actual timezone. Either way it must be a
+    // non-empty string the engine accepts as a valid IANA zone.
+    expect(typeof DEFAULT_TIMEZONE).toBe("string");
+    expect(DEFAULT_TIMEZONE.length).toBeGreaterThan(0);
+    // The fallback string must still be in the common list so the
+    // <Select> doesn't reject it.
+    expect(COMMON_TIMEZONES).toContain(DEFAULT_TIMEZONE);
   });
 });
 

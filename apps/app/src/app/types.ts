@@ -190,6 +190,8 @@ export const SETTINGS_TAB_VALUES = [
   "cloud-providers",
   "skills",
   "extensions",
+  "artifacts",
+  "mcp-dashboard",
   "environment",
   "advanced",
   "appearance",
