@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CATCHUP_WINDOW_MS, Scheduler, type JobExecutor } from "./scheduler.js";
+import { CATCHUP_WINDOW_MS, Scheduler, type JobExecutor, getActiveScheduler, setActiveScheduler } from "./scheduler.js";
 import { __resetScheduledDbForTests, scheduledDb, type ScheduledDb } from "./repo.js";
 import type { ScheduledJob, ServerConfig } from "../types.js";
 
@@ -282,5 +282,45 @@ describe("Scheduler — stop", () => {
     await scheduler.stop();
     await scheduler.registerJob(job);
     expect(scheduler.__cronCount()).toBe(0);
+  });
+});
+
+describe("Scheduler — restart safety", () => {
+  test("booting a second Scheduler with the same jobs does not throw 'name already taken'", async () => {
+    // Reproduces the desktop production bug: a previous server (or hot-
+    // reloaded dev instance) left crons in croner's module-level
+    // `scheduledJobs` registry. When the next startServer() call creates
+    // a fresh Scheduler and tries to register jobs with the same names,
+    // croner throws "Tried to initialize new named job, but name
+    // already taken." `startServer` must `await getActiveScheduler()?.stop()`
+    // before constructing a new Scheduler to drain that registry first.
+    const job = makeJob();
+    const persisted = await createAndPersist(job);
+    const executor = vi.fn<JobExecutor>(async () => {});
+
+    // Simulate the leaked first scheduler (engine restart, hot reload,
+    // crash). boot() registers a `Cron` named `job:<id>` in croner's
+    // global registry. We intentionally do NOT call first.stop() so the
+    // registry still holds the leaked cron.
+    const first = new Scheduler({ config: baseConfig, executor, db: () => Promise.resolve(db) });
+    await first.boot();
+    expect(first.__cronCount()).toBe(1);
+
+    // Without the fix in server.ts, building a new Scheduler and trying
+    // to register the same job would throw. Verify the error reproduces
+    // here so the test guards against a future regression that drops the
+    // pre-emptive stop in startServer.
+    const second = new Scheduler({ config: baseConfig, executor, db: () => Promise.resolve(db) });
+    await expect(second.boot()).rejects.toThrow(/name already taken/);
+
+    // With the fix: stop the previous scheduler first, then boot the
+    // new one. The leaked cron is released from croner's registry, so
+    // the new Scheduler can register the same job id without collision.
+    await first.stop();
+    const secondAfterFix = new Scheduler({ config: baseConfig, executor, db: () => Promise.resolve(db) });
+    await secondAfterFix.boot();
+    expect(secondAfterFix.__cronCount()).toBe(1);
+    expect(secondAfterFix.__getRegisteredJob(persisted.id)).toBeDefined();
+    await secondAfterFix.stop();
   });
 });

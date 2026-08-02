@@ -94,6 +94,15 @@ export interface ServerConfig {
   approval: ApprovalConfig;
   corsOrigins: string[];
   workspaces: WorkspaceInfo[];
+  /**
+   * The workspace the user is currently looking at. Stored separately from
+   * `workspaces[0]` so that activating a workspace does not implicitly
+   * reorder the workspace list — see
+   * `routes/workspaces.ts:POST /workspaces/:id/activate` for the contract.
+   * If unset, callers fall back to `workspaces[0]?.id` (preserves the old
+   * behaviour for configs written before this field existed).
+   */
+  activeWorkspaceId?: string;
   authorizedRoots: string[];
   readOnly: boolean;
   startedAt: number;
@@ -117,6 +126,7 @@ export interface Capabilities {
   serverVersion: string;
   opencodeVersion: string;
   skills: { read: boolean; write: boolean; source: "openwork" | "opencode" };
+  assets: { read: boolean; write: boolean; maxSizeBytes: number };
   hub: {
     skills: {
       read: boolean;
@@ -152,10 +162,10 @@ export interface Capabilities {
   };
 }
 
-export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
+export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands" | "assets";
 
 export type ReloadTrigger = {
-  type: "skill" | "plugin" | "config" | "mcp" | "agent" | "command";
+  type: "skill" | "plugin" | "config" | "mcp" | "agent" | "command" | "asset";
   name?: string;
   action?: "added" | "removed" | "updated";
   path?: string;
@@ -220,6 +230,120 @@ export interface CommandItem {
   subtask?: boolean;
   scope: "workspace" | "global";
 }
+
+/* ------------------------------------------------------------------ *
+ * Assets (Phase 8 / Asset Library)                                   *
+ * ------------------------------------------------------------------ */
+
+export type AssetScope = "local" | "workspace" | "org" | "hub";
+export type AssetKind = "file" | "bundle" | "text";
+
+export interface AssetFileEntry {
+  path: string;
+  mime: string;
+  size: number;
+  checksum: string;
+}
+
+export interface AssetPermissions {
+  read: string[];
+  write: string[];
+}
+
+export interface AssetProvenance {
+  source?: string;
+  installedFromHub?: { hub: string; hubAssetId: string };
+  parentVersion?: string;
+  chain?: string;
+}
+
+export interface AssetPreview {
+  type: string;
+  thumbnailAssetId?: string;
+}
+
+export interface AssetManifest {
+  schemaVersion: "1.0";
+  id: string;
+  scope: AssetScope;
+  name: string;
+  kind: AssetKind;
+  version: string;
+  mime: string;
+  tags: string[];
+  description?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  checksum: string;
+  size: number;
+  preview?: AssetPreview;
+  files?: AssetFileEntry[];
+  permissions: AssetPermissions;
+  provenance: AssetProvenance;
+}
+
+export interface AssetSummary {
+  id: string;
+  scope: AssetScope;
+  name: string;
+  kind: AssetKind;
+  version: string;
+  tags: string[];
+  mime: string;
+  size: number;
+  updatedAt: string;
+  installedVersion?: string;
+  hasUpdate?: boolean;
+}
+
+export interface AssetVersion {
+  version: string;
+  size: number;
+  checksum: string;
+  createdAt: string;
+  createdBy: string;
+  message?: string;
+}
+
+export interface ResolvedAsset {
+  manifest: AssetManifest;
+  content?: string;
+  bytes?: string;
+  files?: Record<string, string>;
+  url?: string;
+}
+
+export interface HubAssetItem {
+  id: string;
+  name: string;
+  description?: string;
+  kind: AssetKind;
+  tags: string[];
+  version: string;
+  source: { owner: string; repo: string; ref: string; path: string };
+}
+
+export interface DenAssetSnapshot {
+  id: string;
+  scope: "org";
+  name: string;
+  kind: AssetKind;
+  version: string;
+  tags: string[];
+  manifestUrl: string;
+  payloadUrl: string;
+  sizeBytes: number;
+  checksum: string;
+  updatedAt: string;
+}
+
+export type AssetReference = {
+  reference: string;
+  resolved?: ResolvedAsset;
+  error?: { code: string; message: string };
+};
 
 export interface Actor {
   type: "remote" | "host";

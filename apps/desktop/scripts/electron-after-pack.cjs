@@ -132,7 +132,7 @@ function rebuildNodePty(context) {
   const asarPath = path.join(appPath, "Contents", "Resources", "app.asar");
   
   // Check if node_modules are unpacked (not in ASAR)
-  const nodeModulesPath = path.join(appPath, "Contents", "Resources", "node_modules");
+  const nodeModulesPath = path.join(appPath, "Contents", "Resources", "app.asar.unpacked", "node_modules");
   const nodePtyPath = path.join(nodeModulesPath, "node-pty");
   
   if (!fs.existsSync(nodePtyPath)) {

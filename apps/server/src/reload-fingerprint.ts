@@ -12,6 +12,7 @@ export const fingerprintedReloadReasons: ReloadReason[] = [
   "commands",
   "plugins",
   "mcp",
+  "assets",
 ];
 
 function shouldSkipDir(name: string): boolean {
@@ -103,6 +104,12 @@ async function collectFiles(workspaceRoot: string, reason: ReloadReason): Promis
 
   if (reason === "plugins") {
     await collectTreeFiles(files, join(root, ".opencode", "plugins"), () => true);
+  }
+
+  if (reason === "assets") {
+    await collectTreeFiles(files, join(root, ".opencode", "assets"), (absPath) =>
+      /manifest\.json$/i.test(basename(absPath)),
+    );
   }
 
   return Array.from(files).sort((a, b) => a.localeCompare(b));

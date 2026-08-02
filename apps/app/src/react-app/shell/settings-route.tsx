@@ -73,6 +73,7 @@ import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/auth
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { ArtifactsView } from "@/react-app/domains/settings/pages/artifacts-view";
+import { AssetsView } from "@/react-app/domains/settings/pages/assets-view";
 import { McpDashboardView } from "@/react-app/domains/settings/pages/mcp-dashboard-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
@@ -2070,6 +2071,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
             activeClient={activeClient}
+            navigate={navigate}
+          />
+        );
+      case "assets":
+        return (
+          <AssetsView
+            openworkClient={openworkClient}
+            selectedWorkspaceId={selectedWorkspaceId}
+            selectedWorkspaceRoot={selectedWorkspaceRoot}
+            isRemoteWorkspace={isRemoteWorkspace}
             navigate={navigate}
           />
         );

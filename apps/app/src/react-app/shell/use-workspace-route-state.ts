@@ -211,7 +211,52 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
               )
             : fetchedItems;
           setSessionsByWorkspaceId((current) => {
-            const nextItems = mergeFetchedSessionsWithPending(workspace.id, items, current[workspace.id] ?? []);
+            // Empty response (transient network/server error, or genuine empty
+            // workspace): keep whatever we already had. The sidebar must not
+            // flicker to "no sessions" just because one fetch returned
+            // nothing — see docs/plan-sidebar-session-order-stability.md.
+            if (items.length === 0) return current;
+            // Touch the pending map so optimistic sessions that the server
+            // has now acked are cleared. We don't use the returned list — see
+            // below for the diff-merge that actually orders the output.
+            mergeFetchedSessionsWithPending(workspace.id, items, current[workspace.id] ?? []);
+            // Diff-merge against `current` (not the merged-with-pending
+            // output): we want to preserve optimistic pending sessions even
+            // if the server hasn't acked them yet, and we want to keep the
+            // existing order for sessions the server still returns so that
+            // streaming/activity updates don't reshuffle the sidebar.
+            const newItemsById = new Map<string, RouteSession>();
+            for (const session of items) {
+              if (!session?.id) continue;
+              newItemsById.set(String(session.id), session);
+            }
+            const orderedKnown: RouteSession[] = [];
+            const seenIds = new Set<string>();
+            for (const session of current[workspace.id] ?? []) {
+              if (!session?.id) continue;
+              const id = String(session.id);
+              if (seenIds.has(id)) continue;
+              if (newItemsById.has(id)) {
+                // Use the freshest copy from the server.
+                orderedKnown.push(newItemsById.get(id) as RouteSession);
+              } else {
+                // Not in this fetch — keep the existing copy. This preserves
+                // optimistic sessions (pendingCreatedSessionIds) until the
+                // server acks them, and keeps sessions alive if the fetch
+                // response was filtered to a different directory.
+                orderedKnown.push(session);
+              }
+              seenIds.add(id);
+            }
+            const newSessions: RouteSession[] = [];
+            for (const session of items) {
+              if (!session?.id) continue;
+              const id = String(session.id);
+              if (seenIds.has(id)) continue;
+              newSessions.push(session);
+              seenIds.add(id);
+            }
+            const nextItems = [...orderedKnown, ...newSessions];
             const next = { ...current, [workspace.id]: nextItems };
             sessionsByWorkspaceIdRef.current = next;
             return next;

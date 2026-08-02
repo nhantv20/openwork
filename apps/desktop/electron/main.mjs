@@ -43,7 +43,7 @@ const DESKTOP_PROTOCOL_SCHEME = "openwork";
 const isDevMode = process.env.OPENWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.OPENWORK_ELECTRON_APP_NAME?.trim() ||
-  (isDevMode ? "OpenWork - Dev" : "OpenWork");
+  (isDevMode ? "MDECowork - Dev" : "MDECowork");
 const APP_IDENTIFIER =
   process.env.OPENWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER);

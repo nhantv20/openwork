@@ -26,6 +26,10 @@ Contact FPT Cloud to obtain an API key for their AI inference platform.
 |---|---|---|
 | `FPT_API_KEY` | `your-api-key-here` | ✅ Yes |
 | `FPT_CONFIG` | `{ "models": { ... }, "baseURL": "..." }` | Optional |
+| `FPT_PROXY_BASE_URL` | `http://127.0.0.1:8789/v1` | Optional — overrides `FPT_CONFIG.baseURL`. Point at a local proxy (e.g. `scripts/fpt-proxy`) for rate-limit observation. |
+| `FPT_LIGHT_MODE` | `1` | Optional — drop heavy opencode-internal plugins + all MCPs to lower per-request prompt token cost. Useful when FPT rate-limits on TPM. |
+| `FPT_DISABLE_PLUGINS` | `linear,figma` | Optional — comma-separated plugin names to exclude (substring match). |
+| `FPT_DISABLE_MCPS` | `linear,figma` | Optional — comma-separated MCP names to exclude (substring match). |
 
 4. Click **Apply Changes** to restart the engine
 

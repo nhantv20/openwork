@@ -259,6 +259,25 @@ export function RightPanel({
           </Tooltip>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
+          {/*
+            FileExplorerPanel stays mounted across mode switches so the
+            expanded-folder and selected-file state survive the trip
+            Files → Preview → Files. Other panels (Voice / Preview /
+            Review / Browser / Extensions) unmount as before because they
+            are heavier or tied to a specific artifact tab — the tree view
+            is the one that visibly "loses" state on remount, so it's
+            the one worth keeping alive.
+          */}
+          <div className={cn("h-full min-h-0", mode !== "files" && "hidden")}>
+            <FileExplorerPanel
+              client={client}
+              workspaceId={workspaceId}
+              workspaceRoot={workspaceRoot}
+              sessionId={sessionId}
+              onFileSelect={handleFileSelect}
+              onClose={onClose}
+            />
+          </div>
           {mode === "extensions" && extensionsSlot ? (
             <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
               {extensionsSlot}
@@ -268,15 +287,6 @@ export function RightPanel({
               client={client}
               workspaceId={workspaceId}
               sessionId={sessionId}
-              onClose={onClose}
-            />
-          ) : mode === "files" ? (
-            <FileExplorerPanel
-              client={client}
-              workspaceId={workspaceId}
-              workspaceRoot={workspaceRoot}
-              sessionId={sessionId}
-              onFileSelect={handleFileSelect}
               onClose={onClose}
             />
           ) : mode === "preview" ? (

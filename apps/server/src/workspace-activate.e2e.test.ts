@@ -67,6 +67,13 @@ async function readPersistedConfig(configPath: string): Promise<unknown> {
   return JSON.parse(await readFile(configPath, "utf8"));
 }
 
+async function readPersistedActiveWorkspaceId(configPath: string): Promise<string | null> {
+  const value = JSON.parse(await readFile(configPath, "utf8"));
+  if (!value || typeof value !== "object") return null;
+  const active = (value as Record<string, unknown>).activeWorkspaceId;
+  return typeof active === "string" && active.trim() ? active : null;
+}
+
 function startMockOpencode() {
   const requests: Array<{ pathname: string; search: string }> = [];
   const server = Bun.serve({
@@ -245,7 +252,11 @@ describe("workspace activation", () => {
     const persistedBody = await persistedResponse.json();
     expect(persistedBody.activeId).toBe("ws_2");
     expect(persistedBody.persisted).toBe(true);
-    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_2", "ws_1"]);
+    // Activating a workspace must NOT reorder the list. The original order
+    // (ws_1, ws_2) is preserved; the active selection lives in
+    // `activeWorkspaceId` separately.
+    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_1", "ws_2"]);
+    expect(await readPersistedActiveWorkspaceId(configPath)).toBe("ws_2");
 
     const volatileResponse = await fetch(`${base}/workspaces/ws_1/activate`, {
       method: "POST",
@@ -255,7 +266,7 @@ describe("workspace activation", () => {
     const volatileBody = await volatileResponse.json();
     expect(volatileBody.activeId).toBe("ws_1");
     expect(volatileBody.persisted).toBe(false);
-    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_2", "ws_1"]);
+    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_1", "ws_2"]);
 
     const bodyPersistedResponse = await fetch(`${base}/workspaces/ws_1/activate`, {
       method: "POST",
@@ -267,6 +278,54 @@ describe("workspace activation", () => {
     expect(bodyPersistedBody.activeId).toBe("ws_1");
     expect(bodyPersistedBody.persisted).toBe(true);
     expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_1", "ws_2"]);
+    expect(await readPersistedActiveWorkspaceId(configPath)).toBe("ws_1");
+  });
+
+  test("activate does not reorder the workspace list", async () => {
+    // Regression guard: previously `POST /workspaces/:id/activate` prepended
+    // the activated workspace to `config.workspaces`, which made every
+    // sidebar click jump the selected project to the top. The activation
+    // state now lives in `config.activeWorkspaceId`; the array order is
+    // preserved across activate calls.
+    const firstRoot = await createWorkspaceRoot();
+    const secondRoot = await createWorkspaceRoot();
+    const thirdRoot = await createWorkspaceRoot();
+    const configPath = join(firstRoot, "server.json");
+    const workspaces: ServerConfig["workspaces"] = [
+      { id: "ws_a", name: "A", path: firstRoot, preset: "starter", workspaceType: "local" },
+      { id: "ws_b", name: "B", path: secondRoot, preset: "starter", workspaceType: "local" },
+      { id: "ws_c", name: "C", path: thirdRoot, preset: "starter", workspaceType: "local" },
+    ];
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ workspaces, authorizedRoots: [firstRoot, secondRoot, thirdRoot] }, null, 2)}\n`,
+      "utf8",
+    );
+    const openwork = await startOpenworkServerWithWorkspaces({
+      configPath,
+      workspaces,
+      authorizedRoots: [firstRoot, secondRoot, thirdRoot],
+    });
+
+    const base = `http://127.0.0.1:${openwork.server.port}`;
+
+    // Activate ws_c (the tail of the list). It must NOT move to the head.
+    const cResponse = await fetch(`${base}/workspaces/ws_c/activate?persist=true`, {
+      method: "POST",
+      headers: hostAuth(openwork.hostToken),
+    });
+    expect(cResponse.status).toBe(200);
+    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_a", "ws_b", "ws_c"]);
+    expect(await readPersistedActiveWorkspaceId(configPath)).toBe("ws_c");
+
+    // Activate ws_a. Order is still preserved.
+    const aResponse = await fetch(`${base}/workspaces/ws_a/activate?persist=true`, {
+      method: "POST",
+      headers: hostAuth(openwork.hostToken),
+    });
+    expect(aResponse.status).toBe(200);
+    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["ws_a", "ws_b", "ws_c"]);
+    expect(await readPersistedActiveWorkspaceId(configPath)).toBe("ws_a");
   });
 });
 
@@ -417,7 +476,9 @@ describe("workspace lifecycle registry", () => {
       headers: hostAuth(openwork.hostToken),
     });
     expect(activateResponse.status).toBe(200);
-    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["rem_ws_two", "rem_ws_one"]);
+    // Activating rem_ws_two must NOT reorder the workspace list.
+    expect(await readPersistedWorkspaceIds(configPath)).toEqual(["rem_ws_one", "rem_ws_two"]);
+    expect(await readPersistedActiveWorkspaceId(configPath)).toBe("rem_ws_two");
 
     const deleteResponse = await fetch(`${base}/workspaces/rem_ws_one`, {
       method: "DELETE",

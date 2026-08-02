@@ -191,6 +191,7 @@ export const SETTINGS_TAB_VALUES = [
   "skills",
   "extensions",
   "artifacts",
+  "assets",
   "mcp-dashboard",
   "environment",
   "advanced",

@@ -179,6 +179,25 @@ export type OpenworkWorkspaceFileDeleteResult = {
   code?: string;
 };
 
+export type OpenworkAssetSummary = {
+  id: string;
+  scope: "local" | "workspace" | "org" | "hub";
+  name: string;
+  kind: "file" | "bundle" | "text";
+  version: string;
+  tags: string[];
+  mime: string;
+  size: number;
+  updatedAt: string;
+};
+
+export type OpenworkAssetManifest = OpenworkAssetSummary & {
+  description?: string;
+  checksum: string;
+  files?: Array<{ path: string; mime: string; size: number; checksum: string }>;
+  createdAt: string;
+};
+
 export type OpenworkAuthorizedFoldersResponse = {
   folders: string[];
   hiddenCount: number;
@@ -1318,6 +1337,30 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteSession },
+      ),
+    listAssets: (workspaceId: string, options?: { scope?: OpenworkAssetSummary["scope"]; kind?: OpenworkAssetSummary["kind"]; q?: string }) => {
+      const params = new URLSearchParams();
+      if (options?.scope) params.set("scope", options.scope);
+      if (options?.kind) params.set("kind", options.kind);
+      if (options?.q) params.set("q", options.q);
+      const query = params.toString();
+      return requestJson<{ items: OpenworkAssetSummary[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/assets${query ? `?${query}` : ""}`,
+        { token, hostToken, timeoutMs: timeouts.status },
+      );
+    },
+    getAsset: (workspaceId: string, scope: OpenworkAssetSummary["scope"], ns: string, name: string) =>
+      requestJson<{ manifest: OpenworkAssetManifest }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/assets/${scope}/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`,
+        { token, hostToken, timeoutMs: timeouts.status },
+      ),
+    deleteAsset: (workspaceId: string, scope: OpenworkAssetSummary["scope"], ns: string, name: string) =>
+      requestJson<{ ok: boolean; removedVersions: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/assets/${scope}/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteWorkspace },
       ),
     // Phase 3 / M2: scheduled jobs (cron). See
     // docs/plan-sidebar-quick-actions-and-scheduled.md §3.5.

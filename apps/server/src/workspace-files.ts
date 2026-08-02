@@ -28,3 +28,7 @@ export function projectCommandsDir(workspaceRoot: string): string {
 export function projectPluginsDir(workspaceRoot: string): string {
   return join(workspaceRoot, ".opencode", "plugins");
 }
+
+export function projectAssetsDir(workspaceRoot: string): string {
+  return join(workspaceRoot, ".opencode", "assets");
+}

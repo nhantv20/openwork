@@ -56,7 +56,13 @@ export function buildWorkspaceInfos(
       workspaceType,
       remoteType,
       baseUrl: workspace.baseUrl,
-      directory: workspace.directory,
+      // Remote workspaces need a directory token so OpenCode can scope session
+      // lists per tenant. Fall back to the Den workspace id so callers that
+      // omit `directory` in their config still get an isolated session list.
+      directory: workspace.directory
+        ?? (workspaceType === "remote" && remoteType === "openwork" && workspace.openworkWorkspaceId
+          ? `remote::${workspace.openworkWorkspaceId}`
+          : undefined),
       displayName: workspace.displayName,
       openworkHostUrl: workspace.openworkHostUrl,
       openworkToken: workspace.openworkToken,

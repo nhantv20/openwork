@@ -11,6 +11,7 @@ import {
   googleWorkspaceTestConnection,
 } from "../extensions/google-workspace.js";
 import { callExperimentalExtensionAction, listExperimentalExtensionActions } from "../extensions/index.js";
+import { resolveActiveWorkspaceId } from "./workspaces.js";
 import type { TokenService } from "../tokens.js";
 import {
   TOY_UI_CSS,
@@ -320,9 +321,8 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "GET", "/workspaces", "client", async () => {
-    const active = config.workspaces[0] ?? null;
     const items = config.workspaces.map(serializeWorkspace);
-    return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
+    return jsonResponse({ items, workspaces: items, activeId: resolveActiveWorkspaceId(config) });
   });
 
   addRoute(routes, "GET", "/tokens", "host", async () => {

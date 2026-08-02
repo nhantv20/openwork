@@ -3,6 +3,15 @@ import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
 
+import {
+  listAssets,
+  getAsset,
+  resolveAsset,
+  upsertAsset,
+  type AssetFilter,
+} from "../assets.js";
+import { parseAssetReference } from "../validators.js";
+
 type OpenCodeContext = {
   agent?: string;
   sessionID?: string;
@@ -60,6 +69,46 @@ const extensionsExportArgsSchema = z.object({
   skills: z.array(z.string().trim().min(1)).optional().describe("Names of installed skills to export, as shown in Settings > Skills or .opencode/skills/**."),
   mcps: z.array(z.string().trim().min(1)).optional().describe("Names of installed MCP servers to export, including OpenWork-managed runtime MCPs."),
   workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Defaults to the workspace containing the current directory."),
+});
+
+const assetListArgsSchema = z.object({
+  scope: z.enum(["local", "workspace", "org", "hub"]).optional().describe("Asset scope filter."),
+  q: z.string().optional().describe("Substring match against name, id, description, tags."),
+  tag: z.string().optional().describe("Filter by exact tag."),
+  mime: z.string().optional().describe("Filter by MIME prefix."),
+  kind: z.enum(["file", "bundle", "text"]).optional().describe("Filter by asset kind."),
+  limit: z.number().int().positive().max(100).optional().describe("Max results. Default 20."),
+});
+
+const assetReadArgsSchema = z.object({
+  id: z.string().describe("Asset id, e.g. 'acme/letterhead'."),
+  scope: z.enum(["local", "workspace", "org", "hub"]).default("workspace").describe("Asset scope."),
+  version: z.string().optional().describe("Version string. Accepts semver-loose ('2', '2.0') or 'latest'. Omit for latest."),
+  file: z.string().optional().describe("For bundle assets, the file path inside the bundle."),
+});
+
+const assetWriteArgsSchema = z.object({
+  id: z.string().describe("Asset id, e.g. 'acme/letterhead'."),
+  kind: z.enum(["file", "bundle", "text"]).describe("Asset kind."),
+  scope: z.enum(["local", "workspace", "org", "hub"]).default("workspace").describe("Asset scope."),
+  name: z.string().optional().describe("Human-friendly display name."),
+  mime: z.string().optional().describe("Primary MIME. Inferred from path/file when omitted."),
+  tags: z.array(z.string()).optional().describe("Tags for search/filtering."),
+  description: z.string().optional().describe("One-line description."),
+  content: z.string().optional().describe("For kind=text or kind=file: text content or 'base64:<...>' for binary."),
+  files: z.record(z.string(), z.string()).optional().describe("For kind=bundle: { path: content or base64:... } map."),
+  version: z.string().optional().describe("Explicit version. Default: auto-bump patch."),
+  bumpMessage: z.string().optional().describe("Optional bump note stored on the version."),
+  parentVersion: z.string().optional().describe("Expected current latest version; CAS guard."),
+});
+
+const assetResolveArgsSchema = z.object({
+  references: z.array(z.string()).describe("asset:// URIs to resolve."),
+});
+
+const assetSearchArgsSchema = z.object({
+  query: z.string().describe("Substring match across manifest fields."),
+  scope: z.enum(["local", "workspace", "org", "hub"]).optional(),
 });
 
 const workspaceSchema = z.object({
@@ -724,6 +773,127 @@ export const OpenWorkExtensionsPreview = async () => ({
           body: { actionId: "browser.set_proxy", args: { proxy: "" } },
         });
         return JSON.stringify(result, null, 2);
+      },
+    },
+    openwork_list_assets: {
+      description: "List assets available to the current workspace, optionally filtered by scope/tag/mime/kind. Returns lightweight AssetSummary entries.",
+      args: assetListArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const args = assetListArgsSchema.parse(rawArgs);
+          const worktree = context.worktree ?? context.directory;
+          if (!worktree) {
+            return JSON.stringify({ ok: false, error: "missing_worktree", message: "No worktree available in context" });
+          }
+          const filter: AssetFilter = {
+            scope: args.scope,
+            q: args.q,
+            tag: args.tag,
+            mime: args.mime,
+            kind: args.kind,
+          };
+          const assets = await listAssets(worktree, filter);
+          return JSON.stringify({ ok: true, count: assets.length, assets: assets.slice(0, args.limit ?? 20) }, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
+      },
+    },
+    openwork_read_asset: {
+      description: "Read an asset by id. Returns the manifest plus content (text asset), bytes (file asset), or files map (bundle asset when #file is given). Always returns the manifest first so the caller knows what was resolved.",
+      args: assetReadArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const args = assetReadArgsSchema.parse(rawArgs);
+          const worktree = context.worktree ?? context.directory;
+          if (!worktree) {
+            return JSON.stringify({ ok: false, error: "missing_worktree", message: "No worktree available in context" });
+          }
+          const manifest = await getAsset(worktree, args.scope, args.id, args.version);
+          const resolved = await resolveAsset(worktree, args.scope, args.id, args.version, args.file);
+          return JSON.stringify({ ok: true, manifest, content: resolved.content, bytes: resolved.bytes, files: resolved.files }, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
+      },
+    },
+    openwork_write_asset: {
+      description: "Create or bump an asset version. Agent calls always go through user approval upstream; this tool performs the write after approval is granted. Provide content for text/file, or files map for bundle.",
+      args: assetWriteArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const args = assetWriteArgsSchema.parse(rawArgs);
+          const worktree = context.worktree ?? context.directory;
+          if (!worktree) {
+            return JSON.stringify({ ok: false, error: "missing_worktree", message: "No worktree available in context" });
+          }
+          const manifest = await upsertAsset(worktree, {
+            id: args.id,
+            kind: args.kind,
+            scope: args.scope,
+            name: args.name,
+            mime: args.mime,
+            tags: args.tags,
+            description: args.description,
+            content: args.content,
+            files: args.files,
+            version: args.version,
+            bumpMessage: args.bumpMessage,
+            parentVersion: args.parentVersion,
+            createdBy: `agent:${context.sessionID ?? "unknown"}`,
+          });
+          return JSON.stringify({ ok: true, manifest }, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
+      },
+    },
+    openwork_resolve_asset: {
+      description: "Resolve one or more asset:// URIs to their concrete bytes/files. Use this when you have a list of references and want them in one round-trip.",
+      args: assetResolveArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const args = assetResolveArgsSchema.parse(rawArgs);
+          const worktree = context.worktree ?? context.directory;
+          if (!worktree) {
+            return JSON.stringify({ ok: false, error: "missing_worktree", message: "No worktree available in context" });
+          }
+          const results = [];
+          for (const ref of args.references) {
+            const parsed = parseAssetReference(ref);
+            if (!parsed) {
+              results.push({ reference: ref, error: { code: "invalid_reference", message: "Could not parse asset:// URI" } });
+              continue;
+            }
+            try {
+              const resolved = await resolveAsset(worktree, parsed.scope, parsed.id, parsed.version, parsed.file);
+              results.push({ reference: ref, manifest: resolved.manifest, content: resolved.content, bytes: resolved.bytes, files: resolved.files });
+            } catch (error) {
+              const e = error as { code?: string; message?: string };
+              results.push({ reference: ref, error: { code: e.code ?? "resolve_failed", message: e.message ?? String(error) } });
+            }
+          }
+          return JSON.stringify({ ok: true, results }, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
+      },
+    },
+    openwork_search_assets: {
+      description: "Full-text search across asset manifests (name, id, description, tags). Use list_assets for tag-only filters.",
+      args: assetSearchArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const args = assetSearchArgsSchema.parse(rawArgs);
+          const worktree = context.worktree ?? context.directory;
+          if (!worktree) {
+            return JSON.stringify({ ok: false, error: "missing_worktree", message: "No worktree available in context" });
+          }
+          const assets = await listAssets(worktree, { scope: args.scope, q: args.query });
+          return JSON.stringify({ ok: true, count: assets.length, assets }, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
       },
     },
   },

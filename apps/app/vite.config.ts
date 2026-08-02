@@ -99,6 +99,12 @@ export default defineConfig({
     }),
   ],
   server: {
+    // Listen on all interfaces so the Electron renderer can reach Vite via
+    // either `localhost`, `127.0.0.1`, or the LAN hostname. Without this,
+    // Vite binds to `localhost` only (which resolves to `::1` on macOS),
+    // and connections over IPv4 (`127.0.0.1`) get refused — surfacing as
+    // "Cannot connect to API" in the renderer.
+    host: true,
     port: devPort,
     strictPort: true,
     ...(allowedHosts.size > 0 ? { allowedHosts: Array.from(allowedHosts) } : {}),

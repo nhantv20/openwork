@@ -32,6 +32,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Resolve which workspace should be reported as "active" in API responses.
+ *
+ * The active workspace is stored as `config.activeWorkspaceId` so the
+ * sidebar position of each project is preserved across activate clicks.
+ * Older config files (and fall-back callers) still derive it from
+ * `workspaces[0]?.id` — the historical implicit state.
+ */
+export function resolveActiveWorkspaceId(config: ServerConfig): string | null {
+  const stored = config.activeWorkspaceId?.trim();
+  if (stored && config.workspaces.some((workspace) => workspace.id === stored)) {
+    return stored;
+  }
+  return config.workspaces[0]?.id ?? null;
+}
+
 function readStringField(value: unknown, key: string): string {
   if (!isRecord(value)) return "";
   const field = value[key];
@@ -215,6 +231,7 @@ async function persistServerWorkspaceState(config: ServerConfig): Promise<boolea
   const next = {
     ...parsed,
     workspaces: config.workspaces.map(serializeWorkspaceConfigEntry),
+    activeWorkspaceId: config.activeWorkspaceId?.trim() || undefined,
     authorizedRoots: Array.from(new Set(config.authorizedRoots.map((root) => resolve(root)))),
   };
 
@@ -297,6 +314,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     };
 
     config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
+    config.activeWorkspaceId = workspace.id;
     if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
       config.authorizedRoots = [...config.authorizedRoots, workspacePath];
     }
@@ -370,17 +388,27 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       }
     }
 
+    const resolvedDirectory = directory
+      ?? (remoteType === "openwork" && openworkWorkspaceId
+        ? `remote::${openworkWorkspaceId}`
+        : undefined);
+
     const workspace: WorkspaceInfo = {
       id: remoteType === "openwork"
         ? openworkRemoteWorkspaceId(openworkHostUrl ?? baseUrl, openworkWorkspaceId)
         : workspaceIdForRemote(baseUrl, directory),
       name: displayName ?? openworkWorkspaceName ?? "Remote workspace",
+      // `directory` is the token OpenCode uses to scope `GET /session` per
+      // tenant. Remote workspaces without an explicit `directory` would
+      // otherwise leak every tenant's sessions into this client's list.
+      // Fall back to the Den workspace id so we always have a stable,
+      // tenant-unique filter signal.
       path: directory ?? "",
+      directory: resolvedDirectory,
       preset: "remote",
       workspaceType: "remote",
       remoteType,
       baseUrl: remoteType === "openwork" ? (openworkHostUrl ?? baseUrl) : baseUrl,
-      ...(directory ? { directory } : {}),
       ...(displayName ? { displayName } : {}),
       ...(remoteType === "openwork" && openworkHostUrl ? { openworkHostUrl } : {}),
       ...(openworkToken ? { openworkToken } : {}),
@@ -392,6 +420,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     };
 
     config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
+    config.activeWorkspaceId = workspace.id;
     const persisted = await persistServerWorkspaceState(config);
     onWorkspacesChanged();
 
@@ -444,7 +473,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     });
 
     return jsonResponse({
-      activeId: config.workspaces[0]?.id ?? null,
+      activeId: resolveActiveWorkspaceId(config),
       workspaces: config.workspaces.map(serializeWorkspace),
       persisted,
     });
@@ -456,10 +485,13 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);
     if (persist) ensureWritable(config);
-    config.workspaces = [
-      workspace,
-      ...config.workspaces.filter((entry) => entry.id !== workspace.id),
-    ];
+    // Activating a workspace must NOT reorder the workspace list. The sidebar
+    // is supposed to keep a stable position for each project so users can
+    // remember where things live. The previous behaviour prepended the
+    // activated workspace to `config.workspaces`, which made every click
+    // jump the selected project to the top. The activation state now lives
+    // in `config.activeWorkspaceId` instead.
+    config.activeWorkspaceId = workspace.id;
     const persisted = persist ? await persistServerWorkspaceState(config) : false;
     if (persist) onWorkspacesChanged();
     await recordAudit(workspace.path, {
@@ -490,6 +522,12 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       // Only remove exact matches; authorizedRoots can contain broader entries.
       config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
     }
+    // If the active workspace just got deleted, fall back to the first
+    // remaining workspace. The persisted file will reflect this on the next
+    // reload — keeping it here avoids dangling activeWorkspaceId values.
+    if (deleted && config.activeWorkspaceId === workspace.id) {
+      config.activeWorkspaceId = config.workspaces[0]?.id;
+    }
     const persisted = await persistServerWorkspaceState(config);
     onWorkspacesChanged();
 
@@ -503,12 +541,11 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       timestamp: Date.now(),
     });
 
-    const active = config.workspaces[0] ?? null;
     return jsonResponse({
       ok: true,
       deleted,
       persisted,
-      activeId: active?.id ?? null,
+      activeId: resolveActiveWorkspaceId(config),
       items: config.workspaces.map(serializeWorkspace),
       workspaces: config.workspaces.map(serializeWorkspace),
     });

@@ -24,6 +24,16 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useFileExplorerStore, useWorkspaceExpandedPaths } from "./file-explorer-store";
+import {
+  buildTree,
+  collectDirectoryPaths,
+  findMatchingTreePath,
+  flattenTree,
+  isInExcludedDir,
+  pathMatchesQuery,
+  type FlatNode,
+  type TreeNode,
+} from "./file-explorer-helpers";
 import { useRepoGitStatus } from "../artifacts/hooks/use-repo-git-status";
 
 const EDITOR_OPTIONS: ReadonlyArray<{ id: string; label: string; command: string }> = [
@@ -114,150 +124,6 @@ interface FileExplorerPanelProps {
   sessionId?: string;
   onFileSelect?: (path: string, preview: OpenTargetPreview) => void;
   onClose?: () => void;
-}
-
-interface TreeNode {
-  name: string;
-  path: string;
-  kind: "file" | "directory";
-  children: TreeNode[];
-  isExpanded: boolean;
-}
-
-interface FlatNode {
-  name: string;
-  path: string;
-  kind: "file" | "directory";
-  depth: number;
-  isExpanded: boolean;
-  hasChildren: boolean;
-  index: number;
-}
-
-function buildTree(
-  items: Array<{ name: string; path: string; kind: "file" | "dir" }>,
-  expandedPaths: Set<string>,
-): TreeNode[] {
-  const dirs: Record<string, TreeNode> = {};
-  const root: TreeNode[] = [];
-
-  const sorted = [...items].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  for (const item of sorted) {
-    const node: TreeNode = item.kind === "dir"
-      ? { name: item.name, path: item.path, kind: "directory", children: [], isExpanded: expandedPaths.has(item.path) }
-      : { name: item.name, path: item.path, kind: "file", children: [], isExpanded: false };
-
-    if (item.kind === "dir") {
-      dirs[item.path] = node;
-    }
-
-    const parentPath = item.path.includes("/")
-      ? item.path.substring(0, item.path.lastIndexOf("/"))
-      : "";
-
-    if (parentPath && dirs[parentPath]) {
-      dirs[parentPath].children.push(node);
-    } else {
-      root.push(node);
-    }
-  }
-
-  return root;
-}
-
-function flattenTree(nodes: TreeNode[], expandedPaths: Set<string>, depth = 0, index = 0): FlatNode[] {
-  const result: FlatNode[] = [];
-
-  for (const node of nodes) {
-    result.push({
-      name: node.name,
-      path: node.path,
-      kind: node.kind,
-      depth,
-      isExpanded: expandedPaths.has(node.path),
-      hasChildren: node.kind === "directory" && node.children.length > 0,
-      index: index++,
-    });
-
-    if (node.kind === "directory" && expandedPaths.has(node.path)) {
-      const sub = flattenTree(node.children, expandedPaths, depth + 1, index);
-      index = sub.length > 0 ? sub[sub.length - 1].index + 1 : index;
-      result.push(...sub);
-    }
-  }
-
-  return result;
-}
-
-// Collect every directory path in a (possibly nested) tree. Used by the search
-// feature to expand the whole tree so query matches are always visible.
-function collectDirectoryPaths(nodes: TreeNode[]): string[] {
-  const out: string[] = [];
-  const visit = (xs: TreeNode[]) => {
-    for (const n of xs) {
-      if (n.kind === "directory") {
-        out.push(n.path);
-        if (n.children.length > 0) visit(n.children);
-      }
-    }
-  };
-  visit(nodes);
-  return out;
-}
-
-// Normalize a string for fuzzy search: lowercase + strip diacritics. Lets
-// "ngon ngu" match "ngôn ngữ" and "App" match "app".
-function normalizeForSearch(value: string): string {
-  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
-}
-
-// Match a file path against a query. Supports:
-//   - Case-insensitive (handled by normalizeForSearch).
-//   - Diacritic-insensitive ("ngon ngu" matches "ngôn ngữ").
-//   - Substring match per path segment (filename or any folder name).
-//   - Multi-word AND: every whitespace-separated word in the query must
-//     appear somewhere in the path.
-// Folders to skip when filtering search results. These are config/dependency
-// trees that aren't part of the user's source code and would otherwise
-// dominate the result list (especially `.opencode/skills` which is large).
-const SEARCH_EXCLUDED_DIRS = new Set(["node_modules", ".opencode", ".git", "dist", "build", ".next", ".turbo", "coverage"]);
-
-function isInExcludedDir(filePath: string): boolean {
-  return filePath.split(/[/\\]/).some((segment) => SEARCH_EXCLUDED_DIRS.has(segment));
-}
-
-function pathMatchesQuery(filePath: string, query: string): boolean {
-  if (isInExcludedDir(filePath)) return false;
-  const trimmed = query.trim();
-  if (!trimmed) return true;
-  const normalizedPath = normalizeForSearch(filePath);
-  const words = normalizeForSearch(trimmed).split(/\s+/).filter(Boolean);
-  return words.every((word) => normalizedPath.includes(word));
-}
-
-/**
- * Find a file in the tree whose lowercased path matches `lowerCasedPath`.
- * Returns the path with the workspace's original casing, or `null` if not
- * found. The file IDs in panel-tab-store are derived from a lowercased
- * path, so we need this lookup to display the highlight in the right case.
- */
-function findMatchingTreePath(nodes: TreeNode[], lowerCasedPath: string): string | null {
-  const target = lowerCasedPath.toLowerCase();
-  const visit = (xs: TreeNode[]): string | null => {
-    for (const node of xs) {
-      if (node.path.toLowerCase() === target) return node.path;
-      if (node.kind === "directory" && node.children.length > 0) {
-        const found = visit(node.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-  return visit(nodes);
 }
 
 function FileNode({
@@ -411,6 +277,16 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   const toggleExpanded = useFileExplorerStore((state) => state.toggleExpanded);
   const expandMany = useFileExplorerStore((state) => state.expand);
   const collapseOne = useFileExplorerStore((state) => state.collapse);
+  // Track which directory paths have already been fetched this session so
+  // we don't re-issue the same API call when the same dir is requested
+  // from multiple places (search effect, panel-tab sync, manual expand,
+  // effect-driven restore). Reset only when the workspace changes.
+  const loadedDirsRef = useRef<Set<string>>(new Set());
+  // Remember the last workspaceId we processed so the data effect can
+  // distinguish a real workspace switch from a data refetch for the same
+  // workspace. Without this guard every refresh would call setTree(newTree)
+  // and wipe the lazy-loaded children that the user is currently looking at.
+  const lastWorkspaceIdRef = useRef<string | null>(null);
   const setSelectedPath = useFileExplorerStore((state) => state.setSelected);
   const expandAncestors = useFileExplorerStore((state) => state.expandAncestors);
   const parentRef = useRef<HTMLDivElement>(null);
@@ -461,9 +337,20 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     if (!workspaceId) return;
 
     const persisted = useFileExplorerStore.getState().byWorkspace[workspaceId];
-    const newTree = buildTree(data.items, new Set());
-    setTree(newTree);
+    const isNewWorkspace = lastWorkspaceIdRef.current !== workspaceId;
+    lastWorkspaceIdRef.current = workspaceId;
 
+    if (isNewWorkspace) {
+      // Real workspace change — wipe the in-memory tree and the
+      // loaded-dirs cache so we start from a clean slate.
+      loadedDirsRef.current.clear();
+      setTree(buildTree(data.items, new Set()));
+    }
+
+    // Reload any previously-expanded dirs to keep the tree in sync with
+    // persisted state. loadDirChildren is a no-op for dirs already in
+    // loadedDirsRef, so refresh / repeated effect runs don't re-issue API
+    // calls for dirs the user already has open.
     if (persisted) {
       const expanded = new Set(persisted.expandedPaths);
       for (const dir of persisted.expandedPaths) {
@@ -472,7 +359,10 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
       return;
     }
 
-    const rootDirs = newTree.filter((n) => n.kind === "directory").map((n) => n.path);
+    if (!isNewWorkspace) return;
+    const rootDirs = data.items
+      .filter((item) => item.kind === "dir")
+      .map((item) => item.path);
     if (rootDirs.length === 0) return;
 
     const initialExpanded = rootDirs.slice(0, 2);
@@ -501,6 +391,11 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   // prior expand state so clearing the query restores it. Lazy-load any
   // directory that hasn't been fetched yet so the search actually shows
   // descendants.
+  //
+  // We skip directories in SEARCH_EXCLUDED_DIRS (node_modules, .git, etc.)
+  // because they would dominate the request volume without contributing to
+  // search results — the path filter at the display layer still excludes
+  // them, so loading them just to hide them wastes bandwidth and time.
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!workspaceId) return;
@@ -509,7 +404,9 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
         savedExpandedRef.current = new Set(expandedPaths);
       }
       const allDirs = collectDirectoryPaths(tree);
-      const needExpand = allDirs.filter((p) => !expandedPaths.has(p));
+      const needExpand = allDirs.filter(
+        (p) => !expandedPaths.has(p) && !isInExcludedDir(p),
+      );
       if (needExpand.length > 0) {
         const next = new Set(expandedPaths);
         for (const dir of needExpand) next.add(dir);
@@ -554,8 +451,15 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
       if (cancelled) return;
       setSelectedPath(workspaceId, treePath);
       const ancestors = expandAncestors(workspaceId, treePath);
+      // expandAncestors mutates the store synchronously; re-read the latest
+      // expandedPaths instead of using the closure snapshot, otherwise the
+      // loadDirChildren calls below would build children with stale
+      // isExpanded flags.
+      const latestExpanded = new Set(
+        useFileExplorerStore.getState().byWorkspace[workspaceId]?.expandedPaths ?? [],
+      );
       for (const dir of ancestors) {
-        void loadDirChildren(dir, expandedPaths);
+        void loadDirChildren(dir, latestExpanded);
       }
     })();
     return () => {
@@ -567,6 +471,12 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   const loadDirChildren = useCallback(
     async (path: string, expanded: Set<string>) => {
       if (!client || !workspaceId) return;
+      // Skip API call if we've already loaded this directory in the
+      // current session. The tree node already holds the children; the
+      // call would just re-issue the same GET. handleReload clears the
+      // cache first so the refresh button still does a real reload.
+      if (loadedDirsRef.current.has(path)) return;
+      loadedDirsRef.current.add(path);
       try {
         const result = await client.listWorkspaceDirectory(workspaceId, path);
         const children = buildTree(result.items, expanded);
@@ -586,6 +496,8 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
           return insertChildren(prev);
         });
       } catch (err) {
+        // Allow retry on failure — drop the path from the loaded set.
+        loadedDirsRef.current.delete(path);
         console.error("Failed to load directory:", path, err);
       }
     },
@@ -650,13 +562,20 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
         // a file via a chat mention or other external entry point, and the
         // tree happens to be collapsed above it.
         const ancestors = expandAncestors(workspaceId, path);
+        // expandAncestors mutates the store synchronously; re-read the
+        // latest expandedPaths instead of using the closure snapshot,
+        // otherwise the loadDirChildren calls below would build children
+        // with stale isExpanded flags.
+        const latestExpanded = new Set(
+          useFileExplorerStore.getState().byWorkspace[workspaceId]?.expandedPaths ?? [],
+        );
         for (const dir of ancestors) {
-          void loadDirChildren(dir, expandedPaths);
+          void loadDirChildren(dir, latestExpanded);
         }
       }
       onFileSelect?.(path, preview);
     },
-    [onFileSelect, workspaceId, setSelectedPath, expandAncestors, loadDirChildren, expandedPaths],
+    [onFileSelect, workspaceId, setSelectedPath, expandAncestors, loadDirChildren],
   );
 
   const absolutePath = useCallback(
@@ -700,6 +619,11 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
   const handleReload = useCallback(async () => {
     setIsReloading(true);
     try {
+      // Clear the loaded-dirs cache so the upcoming refetch actually
+      // re-issues the API calls for every expanded directory. Without
+      // this the new "skip if already loaded" guard in loadDirChildren
+      // would treat the refresh as a no-op.
+      loadedDirsRef.current.clear();
       const paths = [...expandedPaths];
       await refetch();
       await Promise.all(paths.map((dir) => loadDirChildren(dir, new Set(paths))));
@@ -727,10 +651,24 @@ export function FileExplorerPanel({ client, workspaceId, workspaceRoot, sessionI
     return flatNodes.findIndex((n) => n.path === selectedPath);
   }, [flatNodes, selectedPath]);
 
+  // Auto-scroll to the selected file only when the selected path actually
+  // changes — not when the tree reshuffles. Depending on `selectedFileIndex`
+  // (which changes on every expand/collapse because flatNodes reorders)
+  // makes the focus jump to the selected file every time the user toggles
+  // a folder. Track the path we last scrolled to so we only react to a
+  // genuine user-driven selection change.
+  const lastScrolledPathRef = useRef<string | null>(null);
   useEffect(() => {
-    if (selectedFileIndex < 0) return;
-    virtualizer.scrollToIndex(selectedFileIndex, { align: "center" });
-  }, [selectedFileIndex, virtualizer]);
+    if (!selectedPath) {
+      lastScrolledPathRef.current = null;
+      return;
+    }
+    if (selectedPath === lastScrolledPathRef.current) return;
+    const index = flatNodes.findIndex((n) => n.path === selectedPath);
+    if (index < 0) return;
+    lastScrolledPathRef.current = selectedPath;
+    virtualizer.scrollToIndex(index, { align: "center" });
+  }, [selectedPath, flatNodes, virtualizer]);
 
   if (isLoading) {
     return (

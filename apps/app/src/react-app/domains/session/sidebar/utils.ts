@@ -78,11 +78,15 @@ export const partitionArchivedSessions = (sessions: WorkspaceSessionGroup["sessi
 };
 
 /**
- * Order root sessions: pinned first, then manual order, then server recency.
+ * Order root sessions: pinned first, then manual order, then preserve the
+ * input order from `roots` (which mirrors the server's listSessions response).
  *
- * "Manual order" is filtered to ids that still exist in the current `roots`
- * list, and the remaining (unpinned / unknown) roots are sorted by recency so
- * re-renders and partial server updates don't shuffle them randomly.
+ * We intentionally do NOT sort by recency. `time.updated` changes whenever
+ * the engine reports any activity event (status change, message, thinking),
+ * so sorting by it makes the sidebar shuffle on every server push. The input
+ * order is the only thing we trust: listSessions returns a stable order
+ * (created desc), and the route's diff-merge in loadWorkspaceSessionsInBackground
+ * keeps that order stable across pushes for sessions that already exist.
  */
 export const orderRootSessions = (
   roots: SessionListItem[],
@@ -100,11 +104,10 @@ export const orderRootSessions = (
     ordered.push(root);
     used.add(id);
   }
-  // Anything the server returned but manual order didn't mention: sort by
-  // recency. This is the key bit that keeps the sidebar stable across pushes
-  // — without it the order of unpinned roots inherits whatever order the
-  // server happened to send them in, which flickers.
-  for (const root of sortSessionsByRecency(roots)) {
+  // Anything the server returned but manual order didn't mention: keep the
+  // input order (i.e. the order listSessions sent us). Don't sort by recency
+  // — see the comment above.
+  for (const root of roots) {
     if (used.has(root.id)) continue;
     ordered.push(root);
     used.add(root.id);
@@ -138,13 +141,10 @@ export const buildSessionTreeState = (
     childrenByParent.set(parentID, siblings);
   });
 
-  // Children can be returned by the server in any order (e.g. after a delta
-  // sync). Sort each sibling group by recency so expanding a parent always
-  // shows children newest-first instead of flickering around.
-  for (const [parentID, siblings] of childrenByParent) {
-    const sorted = sortSessionsByRecency(siblings);
-    childrenByParent.set(parentID, sorted);
-  }
+  // Children are kept in the order the server returned them (mirrors the root
+  // session behaviour — see orderRootSessions). We don't sort siblings by
+  // recency because that would make sub-sessions reshuffle every time one of
+  // them reports activity.
 
   const walk = (session: SessionListItem, ancestors: string[]) => {
     ancestorIdsBySessionId.set(session.id, ancestors);

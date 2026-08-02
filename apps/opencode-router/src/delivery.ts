@@ -124,8 +124,8 @@ export async function withDeliveryRetry<T>(
   } = {},
 ): Promise<T> {
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
-  const baseDelayMs = Math.max(50, options.baseDelayMs ?? 250);
-  const maxDelayMs = Math.max(baseDelayMs, options.maxDelayMs ?? 4_000);
+  const baseDelayMs = Math.max(50, options.baseDelayMs ?? 2_000);
+  const maxDelayMs = Math.max(baseDelayMs, options.maxDelayMs ?? 6_000);
 
   let attempt = 0;
   for (;;) {

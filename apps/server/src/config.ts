@@ -46,6 +46,9 @@ interface FileConfig {
   logFormat?: LogFormat;
   logRequests?: boolean;
   enableScheduler?: boolean;
+  /** Optional override of the active workspace. When omitted, the server
+   *  falls back to `workspaces[0]?.id` (the historical implicit state). */
+  activeWorkspaceId?: string;
 }
 
 const DEFAULT_PORT = 8787;
@@ -347,6 +350,9 @@ export async function resolveServerConfig(cli: CliArgs): Promise<ServerConfig> {
     approval,
     corsOrigins,
     workspaces,
+    activeWorkspaceId: typeof fileConfig.activeWorkspaceId === "string" && fileConfig.activeWorkspaceId.trim()
+      ? fileConfig.activeWorkspaceId.trim()
+      : undefined,
     authorizedRoots,
     readOnly,
     startedAt: Date.now(),

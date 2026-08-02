@@ -7,6 +7,23 @@ let serverUrl = ""
 let server: any = null
 let serverStarted = false
 
+// Canonical artifact slug. Accepts:
+//   - bare kebab-case:        "gold-prices"          → "gold-prices"
+//   - with .html extension:   "gold-prices.html"     → "gold-prices"
+//   - uppercase/mixed case:   "Daily News"           → "daily-news"
+//   - spaces and punctuation: "Daily News!"          → "daily-news"
+// Filenames on disk are always `${slug}.html` + `${slug}.meta.json` — the
+// `title` parameter is the user-facing identifier; .html is just a UX nicety
+// stripped before slugifying so every tool (publish/list/delete/info/prompt)
+// treats `"gold-prices"` and `"gold-prices.html"` as the same artifact.
+function artifactSlug(title: string): string {
+  return title
+    .replace(/\.html$/i, "")
+    .replace(/[^a-zA-Z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+}
+
 function startServer() {
   if (serverStarted) return
   serverStarted = true
@@ -170,9 +187,9 @@ export default async () => {
 
 Use publish_artifact to create rich HTML pages that appear as live previews in the artifact panel — dashboards, news digests, reports, annotated diffs, design comparisons, or any output better viewed as a web page than terminal text.
 
-When publishing, include a "prompt" describing how to regenerate the artifact (e.g. "Fetch latest news from VnExpress RSS, format as HTML"). This prompt is stored and used by /antifact update to know what to do.
+When publishing, include a "prompt" describing how to regenerate the artifact (e.g. "Fetch latest news from VnExpress RSS, format as HTML"). This prompt is stored and used by /artifact update to know what to do.
 
-Publishing with the same title overwrites the existing artifact (live update). Each update is tracked in history with timestamp. After publishing, mention the file path (e.g. "artifacts/daily-news.html") in your response so the artifact panel detects it. The artifact is also served at ${url}/<filename>.
+Publishing with the same title overwrites the existing artifact (live update). The title is the artifact identifier — "daily-news" and "daily-news.html" refer to the same artifact regardless of whether you include the extension. Spaces and punctuation are normalized to kebab-case automatically. Each update is tracked in history with timestamp. After publishing, mention the file path (e.g. "artifacts/daily-news.html") in your response so the artifact panel detects it. The artifact is also served at ${url}/<filename>.
 
 Use list_artifacts to see all published artifacts with URLs.
 Use delete_artifact to remove an artifact by title.
@@ -181,21 +198,21 @@ Use artifact_prompt to read or update the regeneration prompt for an artifact.
 Use start_artifact_server / stop_artifact_server to control the HTTP server.
 Use artifact_server_status to check if the server is running.
 
-The /antifact command activates the antifact skill for interactive management.`)
+The /artifact command activates the artifact skill for interactive management.`)
     },
     tool: {
       publish_artifact: {
         description: "Create or update an HTML artifact page. The artifact appears in the artifact panel and can be viewed in the built-in browser. Use for dashboards, news digests, reports, annotated diffs, or any rich HTML output.",
         args: z.object({
-          title: z.string().describe("Artifact title (used as filename, e.g. 'daily-news'). Use kebab-case."),
+          title: z.string().describe("Artifact title (used as filename, e.g. 'daily-news' or 'daily-news.html'). Use kebab-case; trailing '.html' is optional and ignored."),
           content: z.string().describe("Full HTML content. Must include <!DOCTYPE html>, <html>, <head>, and <body> tags."),
-          prompt: z.string().optional().describe("Optional prompt describing how to regenerate this artifact (e.g. 'Fetch latest news from VnExpress RSS, format as HTML'). Used by /antifact update."),
+          prompt: z.string().optional().describe("Optional prompt describing how to regenerate this artifact (e.g. 'Fetch latest news from VnExpress RSS, format as HTML'). Used by /artifact update."),
         }).shape,
         async execute(args: { title: string; content: string; prompt?: string }) {
           const fs = await import("node:fs/promises")
           const nodePath = await import("node:path")
 
-          const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
+          const safeName = artifactSlug(args.title)
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
           const filePath = nodePath.join(dir, `${safeName}.html`)
@@ -293,7 +310,7 @@ The /antifact command activates the antifact skill for interactive management.`)
           const fs = await import("node:fs/promises")
           const nodePath = await import("node:path")
 
-          const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
+          const safeName = artifactSlug(args.title)
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const filePath = nodePath.join(dir, `${safeName}.html`)
           const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
@@ -313,7 +330,7 @@ The /antifact command activates the antifact skill for interactive management.`)
           const fs = await import("node:fs/promises")
           const nodePath = await import("node:path")
 
-          const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
+          const safeName = artifactSlug(args.title)
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const filePath = nodePath.join(dir, `${safeName}.html`)
           const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
@@ -378,7 +395,7 @@ The /antifact command activates the antifact skill for interactive management.`)
           const fs = await import("node:fs/promises")
           const nodePath = await import("node:path")
 
-          const safeName = args.title.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()
+          const safeName = artifactSlug(args.title)
           const dir = nodePath.join(process.cwd(), ARTIFACTS_DIR)
           const metaPath = nodePath.join(dir, `${safeName}.meta.json`)
 

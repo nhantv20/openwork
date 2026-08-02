@@ -11,8 +11,8 @@
     "paths": [".opencode/skills"]
   },
   "command": {
-    "antifact": {
-      "template": "Run the antifact skill to handle this artifact management request: {{input}}",
+    "artifact": {
+      "template": "Run the artifact skill to handle this artifact management request: {{input}}",
       "description": "Manage HTML artifacts — create, update, list, delete, and serve",
       "subtask": true
     }

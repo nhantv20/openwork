@@ -13,6 +13,17 @@ import { dashboardHtmlResponse } from "./mcp-dashboard.js";
 import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { installHubSkill, listHubSkills } from "./skill-hub.js";
+import {
+  deleteAsset,
+  diffAsset,
+  getAsset,
+  getAssetVersions,
+  listAssets,
+  resolveAsset,
+  upsertAsset,
+} from "./assets.js";
+import { parseAssetReference } from "./validators.js";
+import { listAssetReferences } from "./asset-references-store.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
@@ -72,6 +83,10 @@ import { executeScheduledJob, type OpencodeJobClient } from "./scheduled/runner.
 import { scheduledDb } from "./scheduled/repo.js";
 import { AgentEditDetector } from "./agent-edit-detector.js";
 import { startAgentEditPoller, type AgentEditPollerHandle } from "./agent-edit-poller.js";
+import {
+  startOpencodeArchiveRunner,
+  type OpencodeArchiveRunnerHandle,
+} from "./opencode-archive-runner.js";
 import { SnapshotStore } from "./file-snapshots.js";
 import { addDevHistoryRoutes } from "./dev/history-debug-handler.js";
 import {
@@ -703,6 +718,20 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       warn: (msg) => logger.log("warn", msg),
     },
   });
+  // Phase 1 — opencode-archive runner: every 24h, rotates idle sessions
+  // out of the live `opencode.db` into per-session folder archives. See
+  // `scripts/opencode-archive/README.md` for the archive layout. Set
+  // `OPENWORK_ARCHIVE_RUNNER=0` to disable. Future phases will move the
+  // archive to per-workspace folders and switch to a real-time idle hook
+  // (see opencode-archive-runner.ts).
+  const archiveRunner: OpencodeArchiveRunnerHandle = startOpencodeArchiveRunner({
+    config,
+    logger: {
+      info: (msg) => logger.log("info", msg),
+      warn: (msg) => logger.log("warn", msg),
+      error: (msg) => logger.log("error", msg),
+    },
+  });
   const routes = createRoutes(config, approvals, tokens, env, restartReloadWatchers, undefined, agentDetector);
 
   // Phase 3 / M2: boot the in-process cron scheduler. Jobs are loaded
@@ -721,6 +750,18 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   }
   // Open the scheduled-jobs DB once and reuse it across runs.
   const scheduledJobsDb = await scheduledDb(config);
+
+  // `Scheduler.stop()` removes every `Cron` instance from croner's
+  // module-level `scheduledJobs` registry. If a previous server (or
+  // hot-reloaded dev instance) left crons in that registry, recreating
+  // a `Cron` with the same name throws "Tried to initialize new named
+  // job, but name already taken." Stop the active scheduler first so
+  // its crons are released before we build a new one.
+  const previousScheduler = getActiveScheduler();
+  if (previousScheduler) {
+    await previousScheduler.stop();
+    setActiveScheduler(null);
+  }
 
   const scheduler = config.enableScheduler
     ? new Scheduler({
@@ -899,6 +940,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       agentPoller.stop();
       agentDetector.stop();
       watcherHandle.close();
+      archiveRunner.stop();
       reloadBaselineRefreshers.delete(config);
       const activeScheduler = getActiveScheduler();
       if (activeScheduler) {
@@ -1149,6 +1191,7 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
     skills: { read: true, write: writeEnabled, source: "openwork" },
+    assets: { read: true, write: writeEnabled, maxSizeBytes: 209_715_200 },
     hub: {
       skills: {
         read: true,
@@ -2290,6 +2333,154 @@ function createRoutes(
     return jsonResponse({ ok: true, name, path: result.path });
   });
 
+  // Asset Library — see apps/server/src/assets.ts
+  addRoute(routes, "GET", "/workspace/:id/assets", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = ctx.url.searchParams.get("scope") || undefined;
+    const q = ctx.url.searchParams.get("q") || undefined;
+    const tag = ctx.url.searchParams.get("tag") || undefined;
+    const kind = ctx.url.searchParams.get("kind") || undefined;
+    const mime = ctx.url.searchParams.get("mime") || undefined;
+    const limit = Number(ctx.url.searchParams.get("limit") ?? "100");
+    const assets = await listAssets(workspace.path, { scope: scope as never, q, tag, kind: kind as never, mime });
+    return jsonResponse({ items: assets.slice(0, Number.isFinite(limit) ? limit : 100) });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/assets/resolve", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const references = Array.isArray(body.references)
+      ? body.references.filter((r): r is string => typeof r === "string")
+      : [];
+    const results = [];
+    for (const ref of references) {
+      const parsed = parseAssetReference(ref);
+      if (!parsed) {
+        results.push({ reference: ref, error: { code: "invalid_reference", message: "Could not parse asset:// URI" } });
+        continue;
+      }
+      try {
+        const resolved = await resolveAsset(workspace.path, parsed.scope, parsed.id, parsed.version, parsed.file);
+        results.push({ reference: ref, manifest: resolved.manifest, content: resolved.content, bytes: resolved.bytes, files: resolved.files });
+      } catch (error) {
+        const e = error as { code?: string; message?: string };
+        results.push({ reference: ref, error: { code: e.code ?? "resolve_failed", message: e.message ?? String(error) } });
+      }
+    }
+    return jsonResponse({ results });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/assets/:scope/:ns/:name", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = String(ctx.params.scope ?? "");
+    const ns = String(ctx.params.ns ?? "");
+    const name = String(ctx.params.name ?? "");
+    const version = ctx.url.searchParams.get("version") || undefined;
+    const manifest = await getAsset(workspace.path, scope as never, `${ns}/${name}`, version);
+    const references = listAssetReferences(workspace.path, `${ns}/${name}`);
+    return jsonResponse({ manifest, references });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/assets/:scope/:ns/:name/versions", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = String(ctx.params.scope ?? "");
+    const ns = String(ctx.params.ns ?? "");
+    const name = String(ctx.params.name ?? "");
+    const versions = await getAssetVersions(workspace.path, scope as never, `${ns}/${name}`);
+    return jsonResponse({ versions });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/assets/:scope/:ns/:name", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = String(ctx.params.scope ?? "");
+    const ns = String(ctx.params.ns ?? "");
+    const name = String(ctx.params.name ?? "");
+    const body = await readJsonBody(ctx.request);
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "assets.upsert",
+      summary: `Upsert asset ${ns}/${name}`,
+      paths: [join(workspace.path, ".opencode", "assets", scope, ns, name)],
+    });
+    const manifest = await upsertAsset(workspace.path, {
+      id: `${ns}/${name}`,
+      scope: scope as never,
+      kind: typeof body.kind === "string" ? (body.kind as "file" | "bundle" | "text") : undefined,
+      name: typeof body.name === "string" ? body.name : undefined,
+      mime: typeof body.mime === "string" ? body.mime : undefined,
+      tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      content: typeof body.content === "string" ? body.content : undefined,
+      files: body.files && typeof body.files === "object" ? (body.files as Record<string, string>) : undefined,
+      version: typeof body.version === "string" ? body.version : undefined,
+      bumpMessage: typeof body.bumpMessage === "string" ? body.bumpMessage : undefined,
+      parentVersion: typeof body.parentVersion === "string" ? body.parentVersion : undefined,
+      createdBy: typeof body.createdBy === "string" ? body.createdBy : "user",
+    });
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "assets.upsert",
+      target: join(workspace.path, ".opencode", "assets", scope, ns, name, manifest.version),
+      summary: `Upserted asset ${ns}/${name}@${manifest.version}`,
+      timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "assets", {
+      type: "asset",
+      name: `${ns}/${name}`,
+      action: manifest.createdAt === manifest.updatedAt ? "added" : "updated",
+    });
+    return jsonResponse({ manifest });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/assets/:scope/:ns/:name", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = String(ctx.params.scope ?? "");
+    const ns = String(ctx.params.ns ?? "");
+    const name = String(ctx.params.name ?? "");
+    const version = ctx.url.searchParams.get("version") || undefined;
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "assets.delete",
+      summary: `Delete asset ${ns}/${name}${version ? `@${version}` : ""}`,
+      paths: [join(workspace.path, ".opencode", "assets", scope, ns, name)],
+    });
+    const result = await deleteAsset(workspace.path, scope as never, `${ns}/${name}`, version);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "assets.delete",
+      target: join(workspace.path, ".opencode", "assets", scope, ns, name),
+      summary: `Marked ${result.removedVersions.length} version(s) deleted for ${ns}/${name}`,
+      timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "assets", {
+      type: "asset",
+      name: `${ns}/${name}`,
+      action: "removed",
+    });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/assets/:scope/:ns/:name/diff", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const scope = String(ctx.params.scope ?? "");
+    const ns = String(ctx.params.ns ?? "");
+    const name = String(ctx.params.name ?? "");
+    const body = await readJsonBody(ctx.request);
+    const from = String(body.from ?? "");
+    const to = String(body.to ?? "");
+    const before = await getAsset(workspace.path, scope as never, `${ns}/${name}`, from);
+    const after = await getAsset(workspace.path, scope as never, `${ns}/${name}`, to);
+    return jsonResponse(diffAsset(before, after));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
@@ -2938,6 +3129,20 @@ function resolveOpencodeDirectory(workspace: WorkspaceInfo): string | null {
   const explicit = workspace.directory?.trim() ?? "";
   if (explicit) return normalizeOpencodeDirectory(explicit);
   if (workspace.workspaceType === "local") return normalizeOpencodeDirectory(workspace.path);
+  // Remote workspaces (OpenWork-Den cloud or opencode-direct remote) don't have
+  // a local filesystem path. Without a directory token we cannot tell OpenCode
+  // to scope `GET /session` to this tenant — it would return every tenant's
+  // sessions and users would see chats from other workspaces. Fall back to a
+  // tenant-stable identifier (Den's openworkWorkspaceId when present, else
+  // the synthetic `rem_<...>` remote workspace id) so the SDK still attaches
+  // `x-opencode-directory` (rewritten to `?directory=...` by the v2 client)
+  // and OpenCode can filter by it.
+  if (workspace.workspaceType === "remote") {
+    const tenantKey =
+      workspace.openworkWorkspaceId?.trim() ||
+      (workspace.id.startsWith("rem_") ? workspace.id.slice("rem_".length) : workspace.id);
+    if (tenantKey) return normalizeOpencodeDirectory(`remote::${tenantKey}`);
+  }
   return null;
 }
 
